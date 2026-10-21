@@ -35,7 +35,7 @@ data "pf_kube_labels" "labels" {
 }
 
 module "util_admission_controller" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name                        = "vpa-admission-controller"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -54,7 +54,7 @@ module "util_admission_controller" {
 }
 
 module "util_recommender" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name                        = "vpa-recommender"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -73,7 +73,7 @@ module "util_recommender" {
 }
 
 module "util_updater" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name                        = "vpa-updater"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -92,7 +92,7 @@ module "util_updater" {
 }
 
 module "constants" {
-  source = "../kube_constants"
+  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
 }
 
 # ################################################################################
@@ -100,7 +100,7 @@ module "constants" {
 # ################################################################################
 
 module "namespace" {
-  source = "../kube_namespace"
+  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
 
   namespace = local.name
 }
@@ -110,7 +110,7 @@ module "namespace" {
 # ################################################################################
 
 module "webhook_cert" {
-  source = "../kube_internal_cert"
+  source = "${var.pf_module_source}kube_internal_cert${var.pf_module_ref}"
 
   service_names = ["vpa-webhook"]
   secret_name   = "vpa-webhook-certs"
@@ -275,7 +275,9 @@ resource "helm_release" "vpa" {
 
         extraArgs = {
           "min-replicas" = 0 // We don't care b/c we use pdbs
-          v              = var.log_verbosity
+          // Local fork: at most 3 evictions per minute, so restoring the updater does not restart every Auto VPA at once
+          "eviction-rate-limit" = 0.05
+          v                     = var.log_verbosity
         }
 
         resources = {
