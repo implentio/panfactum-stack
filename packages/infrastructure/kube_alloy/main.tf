@@ -33,7 +33,7 @@ data "pf_kube_labels" "labels" {
 }
 
 module "util" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name            = "alloy"
   burstable_nodes_enabled  = true
@@ -42,7 +42,7 @@ module "util" {
 }
 
 module "constants" {
-  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
+  source = "../kube_constants"
 }
 
 /***************************************
@@ -50,7 +50,7 @@ module "constants" {
 ***************************************/
 
 module "namespace" {
-  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
+  source = "../kube_namespace"
 
   namespace = local.name
 }
@@ -152,7 +152,7 @@ resource "helm_release" "alloy" {
 ***************************************/
 
 module "util_events" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name            = "alloy-events"
   burstable_nodes_enabled  = true
@@ -291,7 +291,7 @@ resource "kubectl_manifest" "vpa_alloy" {
 
 module "image_cache" {
   count  = var.node_image_cached_enabled ? 1 : 0
-  source = "${var.pf_module_source}kube_node_image_cache${var.pf_module_ref}"
+  source = "../kube_node_image_cache"
 
   images = [
     {

@@ -63,7 +63,7 @@ data "pf_kube_labels" "labels" {
 }
 
 module "util_read" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "loki-read"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -77,7 +77,7 @@ module "util_read" {
 }
 
 module "util_write" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "loki-write"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -91,7 +91,7 @@ module "util_write" {
 }
 
 module "util_backend" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "loki-backend"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -105,7 +105,7 @@ module "util_backend" {
 }
 
 module "util_canary" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "loki-canary"
   panfactum_scheduler_enabled          = false
@@ -119,7 +119,7 @@ module "util_canary" {
 }
 
 module "constants" {
-  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
+  source = "../kube_constants"
 }
 
 /***************************************
@@ -127,7 +127,7 @@ module "constants" {
 ***************************************/
 
 module "namespace" {
-  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
+  source = "../kube_namespace"
 
   namespace = local.name
 }
@@ -137,7 +137,7 @@ module "namespace" {
 ***************************************/
 
 module "redis_cache" {
-  source = "${var.pf_module_source}kube_redis_sentinel${var.pf_module_ref}"
+  source = "../kube_redis_sentinel"
 
   namespace                            = local.namespace
   replica_count                        = 3
@@ -177,7 +177,7 @@ resource "random_id" "logs_bucket_name" {
 }
 
 module "logs_bucket" {
-  source      = "${var.pf_module_source}aws_s3_private_bucket${var.pf_module_ref}"
+  source      = "../aws_s3_private_bucket"
   bucket_name = random_id.logs_bucket_name.hex
   description = "Long term logs storage"
 
@@ -190,7 +190,7 @@ resource "random_id" "loki_ruler_bucket_name" {
 }
 
 module "loki_ruler_bucket" {
-  source      = "${var.pf_module_source}aws_s3_private_bucket${var.pf_module_ref}"
+  source      = "../aws_s3_private_bucket"
   bucket_name = random_id.loki_ruler_bucket_name.hex
   description = "Loki ruler storage"
 
@@ -242,7 +242,7 @@ resource "kubernetes_service_account" "loki" {
 }
 
 module "loki_aws_permissions" {
-  source = "${var.pf_module_source}kube_sa_auth_aws${var.pf_module_ref}"
+  source = "../kube_sa_auth_aws"
 
   service_account           = kubernetes_service_account.loki.metadata[0].name
   service_account_namespace = local.namespace

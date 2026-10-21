@@ -83,7 +83,7 @@ data "pf_kube_labels" "labels" {
 }
 
 module "util_controller" {
-  source                               = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source                               = "../kube_workload_utility"
   workload_name                        = "argo-controller"
   host_anti_affinity_required          = false // single instance
   instance_type_anti_affinity_required = false // single instance
@@ -98,7 +98,7 @@ module "util_controller" {
 }
 
 module "util_server" {
-  source                               = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source                               = "../kube_workload_utility"
   workload_name                        = "argo-server"
   host_anti_affinity_required          = var.sla_target >= 2
   instance_type_anti_affinity_required = var.sla_target == 3
@@ -112,7 +112,7 @@ module "util_server" {
 }
 
 module "util_events_controller" {
-  source                               = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source                               = "../kube_workload_utility"
   workload_name                        = "argo-events-controller"
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
   pull_through_cache_enabled           = var.pull_through_cache_enabled
@@ -127,7 +127,7 @@ module "util_events_controller" {
 }
 
 module "util_webhook" {
-  source                               = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source                               = "../kube_workload_utility"
   workload_name                        = "argo-webhook"
   host_anti_affinity_required          = var.sla_target >= 2
   instance_type_anti_affinity_required = var.sla_target == 3
@@ -141,7 +141,7 @@ module "util_webhook" {
 }
 
 module "constants" {
-  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
+  source = "../kube_constants"
 }
 
 /***************************************
@@ -149,7 +149,7 @@ module "constants" {
 ***************************************/
 
 module "namespace" {
-  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
+  source = "../kube_namespace"
 
   namespace = local.name
 }
@@ -216,7 +216,7 @@ resource "random_id" "bucket_name" {
 }
 
 module "artifact_bucket" {
-  source      = "${var.pf_module_source}aws_s3_private_bucket${var.pf_module_ref}"
+  source      = "../aws_s3_private_bucket"
   bucket_name = random_id.bucket_name.hex
   description = "Artifact repository for Argo"
 
@@ -250,7 +250,7 @@ data "aws_iam_policy_document" "argo" {
 }
 
 module "aws_permissions" {
-  source = "${var.pf_module_source}kube_sa_auth_aws${var.pf_module_ref}"
+  source = "../kube_sa_auth_aws"
 
   service_account           = kubernetes_service_account.argo_server.metadata[0].name
   service_account_namespace = local.namespace
@@ -279,7 +279,7 @@ resource "kubernetes_config_map" "artifacts" {
 }
 
 module "sync_artifact_config_map" {
-  source = "${var.pf_module_source}kube_sync_config_map${var.pf_module_ref}"
+  source = "../kube_sync_config_map"
 
   config_map_name      = kubernetes_config_map.artifacts.metadata[0].name
   config_map_namespace = kubernetes_config_map.artifacts.metadata[0].namespace
@@ -290,7 +290,7 @@ module "sync_artifact_config_map" {
 ***************************************/
 
 module "database" {
-  source = "${var.pf_module_source}kube_pg_cluster${var.pf_module_ref}"
+  source = "../kube_pg_cluster"
 
   pg_cluster_namespace                 = local.namespace
   pg_initial_storage_gb                = 2
@@ -531,7 +531,7 @@ resource "helm_release" "argo" {
 
 module "ingress" {
   count  = var.ingress_enabled ? 1 : 0
-  source = "${var.pf_module_source}kube_ingress${var.pf_module_ref}"
+  source = "../kube_ingress"
 
   namespace = local.namespace
   name      = "argo-server"
@@ -670,7 +670,7 @@ resource "kubectl_manifest" "pdb_server" {
 }
 
 module "image_cache" {
-  source = "${var.pf_module_source}kube_node_image_cache${var.pf_module_ref}"
+  source = "../kube_node_image_cache"
   images = [
     {
       registry   = "quay.io"
@@ -1174,7 +1174,7 @@ resource "kubernetes_config_map" "test_scripts" {
 
 module "test_workflow" {
   count  = var.test_workflow_enabled ? 1 : 0
-  source = "${var.pf_module_source}wf_spec${var.pf_module_ref}"
+  source = "../wf_spec"
 
   name                        = "test"
   namespace                   = local.namespace

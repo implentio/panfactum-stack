@@ -42,7 +42,7 @@ data "aws_eks_cluster" "cluster" {
 }
 
 module "util_controller" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "cilium-operator"
   instance_type_anti_affinity_required = var.sla_target >= 2 // We are a little more aggressive than typical here, b/c if the operator goes down, there is a significant delay in new node initialization
@@ -62,7 +62,7 @@ module "util_controller" {
 }
 
 module "util_agent" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name               = "cilium-agent"
   burstable_nodes_enabled     = true  // must be capable of running on all nodes
@@ -74,7 +74,7 @@ module "util_agent" {
 }
 
 module "constants" {
-  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
+  source = "../kube_constants"
 }
 
 /***************************************
@@ -82,7 +82,7 @@ module "constants" {
 ***************************************/
 
 module "namespace" {
-  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
+  source = "../kube_namespace"
 
   namespace = local.name
 }
@@ -117,7 +117,7 @@ data "aws_iam_policy_document" "cilium" {
 }
 
 module "aws_permissions" {
-  source = "${var.pf_module_source}kube_sa_auth_aws${var.pf_module_ref}"
+  source = "../kube_sa_auth_aws"
 
 
   annotate_service_account  = false // The helm chart creates the service account

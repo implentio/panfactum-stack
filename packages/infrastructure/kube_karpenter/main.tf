@@ -49,7 +49,7 @@ data "pf_aws_tags" "tags" {
 data "pf_metadata" "metadata" {}
 
 module "util" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "karpenter"
   az_spread_preferred                  = var.sla_target == 3
@@ -63,11 +63,11 @@ module "util" {
 }
 
 module "constants" {
-  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
+  source = "../kube_constants"
 }
 
 module "namespace" {
-  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
+  source = "../kube_namespace"
 
   namespace = local.name
 }
@@ -538,7 +538,7 @@ resource "kubernetes_service_account" "karpenter" {
 }
 
 module "aws_permissions" {
-  source = "${var.pf_module_source}kube_sa_auth_aws${var.pf_module_ref}"
+  source = "../kube_sa_auth_aws"
 
   service_account           = kubernetes_service_account.karpenter.metadata[0].name
   service_account_namespace = local.namespace

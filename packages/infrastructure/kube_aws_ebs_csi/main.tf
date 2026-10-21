@@ -48,7 +48,7 @@ data "pf_kube_labels" "labels" {
 }
 
 module "util_controller" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "ebs-csi-controller"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -63,7 +63,7 @@ module "util_controller" {
 }
 
 module "constants" {
-  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
+  source = "../kube_constants"
 }
 
 /***************************************
@@ -71,7 +71,7 @@ module "constants" {
 ***************************************/
 
 module "namespace" {
-  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
+  source = "../kube_namespace"
 
   namespace = local.service
 }
@@ -102,7 +102,7 @@ data "aws_iam_policy_document" "extra_permissions" {
 }
 
 module "aws_permissions" {
-  source = "${var.pf_module_source}kube_sa_auth_aws${var.pf_module_ref}"
+  source = "../kube_sa_auth_aws"
 
   service_account           = kubernetes_service_account.ebs_csi.metadata[0].name
   service_account_namespace = kubernetes_service_account.ebs_csi.metadata[0].namespace
@@ -314,7 +314,7 @@ resource "helm_release" "ebs_csi_driver" {
 // This improves node startup time performance
 module "image_cache" {
   count  = var.node_image_cached_enabled ? 1 : 0
-  source = "${var.pf_module_source}kube_node_image_cache${var.pf_module_ref}"
+  source = "../kube_node_image_cache"
 
   images = [
     {

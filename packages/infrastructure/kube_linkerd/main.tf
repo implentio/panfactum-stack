@@ -43,7 +43,7 @@ locals {
 }
 
 module "util_cni" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "linkerd-cni"
   burstable_nodes_enabled              = true  // always true because needs to run on all nodes
@@ -72,13 +72,13 @@ module "util_cni" {
 }
 
 module "aws_pull_through" {
-  source = "${var.pf_module_source}aws_ecr_pull_through_cache_addresses${var.pf_module_ref}"
+  source = "../aws_ecr_pull_through_cache_addresses"
 
   pull_through_cache_enabled = var.pull_through_cache_enabled
 }
 
 module "util_destination" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "linkerd-destination"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -92,7 +92,7 @@ module "util_destination" {
 }
 
 module "util_identity" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "linkerd-identity"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -106,7 +106,7 @@ module "util_identity" {
 }
 
 module "util_proxy_injector" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "linkerd-proxy-injector"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -120,7 +120,7 @@ module "util_proxy_injector" {
 }
 
 module "util_proxy" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name               = "linkerd-proxy"
   pull_through_cache_enabled  = var.pull_through_cache_enabled
@@ -133,7 +133,7 @@ module "util_proxy" {
 }
 
 module "util_viz" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name               = "linkerd-viz"
   pull_through_cache_enabled  = var.pull_through_cache_enabled
@@ -145,7 +145,7 @@ module "util_viz" {
 }
 
 module "constants" {
-  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
+  source = "../kube_constants"
 }
 
 /***************************************
@@ -153,7 +153,7 @@ module "constants" {
 ***************************************/
 
 module "namespace" {
-  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
+  source = "../kube_namespace"
 
   namespace = local.name
 
@@ -173,7 +173,7 @@ module "namespace" {
 ///////////////////////////////////////////
 
 module "linkerd_identity_issuer" {
-  source = "${var.pf_module_source}kube_internal_cert${var.pf_module_ref}"
+  source = "../kube_internal_cert"
 
   secret_name = local.linkerd_identity_issuer
   common_name = "identity.linkerd.cluster.local"
@@ -209,7 +209,7 @@ resource "kubernetes_config_map" "ca_bundle" {
 }
 
 module "sync_ca_bundle" {
-  source = "${var.pf_module_source}kube_sync_config_map${var.pf_module_ref}"
+  source = "../kube_sync_config_map"
 
   config_map_name      = kubernetes_config_map.ca_bundle.metadata[0].name
   config_map_namespace = kubernetes_config_map.ca_bundle.metadata[0].namespace
@@ -222,7 +222,7 @@ module "sync_ca_bundle" {
 ///////////////////////////////////////////
 
 module "linkerd_policy_validator" {
-  source = "${var.pf_module_source}kube_internal_cert${var.pf_module_ref}"
+  source = "../kube_internal_cert"
 
   secret_name          = local.linkerd_policy_validator_webhook_secret
   service_names        = ["linkerd-policy-validator"]
@@ -235,7 +235,7 @@ module "linkerd_policy_validator" {
 
 
 module "linkerd_proxy_injector" {
-  source = "${var.pf_module_source}kube_internal_cert${var.pf_module_ref}"
+  source = "../kube_internal_cert"
 
   secret_name   = local.linkerd_proxy_injector_webhook_secret
   service_names = ["linkerd-proxy-injector"]
@@ -246,7 +246,7 @@ module "linkerd_proxy_injector" {
 
 
 module "linkerd_profile_validator" {
-  source = "${var.pf_module_source}kube_internal_cert${var.pf_module_ref}"
+  source = "../kube_internal_cert"
 
   secret_name   = local.linkerd_profile_validator_webhook_secret
   service_names = ["linkerd-sp-validator"]
@@ -750,7 +750,7 @@ resource "helm_release" "linkerd" {
 
 module "image_cache" {
   count  = var.node_image_cached_enabled ? 1 : 0
-  source = "${var.pf_module_source}kube_node_image_cache${var.pf_module_ref}"
+  source = "../kube_node_image_cache"
 
   images = [
 

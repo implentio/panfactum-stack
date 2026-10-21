@@ -132,7 +132,7 @@ resource "kubernetes_cluster_role_binding" "snapshot_metrics" {
 
 module "snapshot_metrics" {
   count  = var.monitoring_enabled ? 1 : 0
-  source = "${var.pf_module_source}kube_deployment${var.pf_module_ref}"
+  source = "../kube_deployment"
 
   namespace = local.namespace
   name      = local.snapshot_metrics_name

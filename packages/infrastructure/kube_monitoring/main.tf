@@ -145,7 +145,7 @@ data "pf_kube_labels" "labels" {
 }
 
 module "util_webhook" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "prometheus-operator-webhook"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -159,7 +159,7 @@ module "util_webhook" {
 }
 
 module "util_operator" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "prometheus-operator"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -173,7 +173,7 @@ module "util_operator" {
 }
 
 module "util_grafana" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "grafana"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -187,7 +187,7 @@ module "util_grafana" {
 }
 
 module "util_prometheus" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "prometheus"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -202,7 +202,7 @@ module "util_prometheus" {
 }
 
 module "util_node_exporter" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "node-exporter"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -216,7 +216,7 @@ module "util_node_exporter" {
 }
 
 module "util_ksm" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "kube-state-metrics"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -230,7 +230,7 @@ module "util_ksm" {
 }
 
 module "util_thanos_compactor" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "thanos-compactor"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -244,7 +244,7 @@ module "util_thanos_compactor" {
 }
 
 module "util_thanos_store_gateway" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "thanos-store-gateway"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -258,7 +258,7 @@ module "util_thanos_store_gateway" {
 }
 
 module "util_thanos_ruler" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "thanos-ruler"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -273,7 +273,7 @@ module "util_thanos_ruler" {
 
 
 module "util_thanos_query" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "thanos-query"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -287,7 +287,7 @@ module "util_thanos_query" {
 }
 
 module "util_thanos_frontend" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "thanos-frontend"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -301,7 +301,7 @@ module "util_thanos_frontend" {
 }
 
 module "util_thanos_bucket_web" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "thanos-bucket-web"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -315,7 +315,7 @@ module "util_thanos_bucket_web" {
 }
 
 module "util_alertmanager" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "alertmanager"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -330,7 +330,7 @@ module "util_alertmanager" {
 }
 
 module "constants" {
-  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
+  source = "../kube_constants"
 }
 
 /***************************************
@@ -338,7 +338,7 @@ module "constants" {
 ***************************************/
 
 module "namespace" {
-  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
+  source = "../kube_namespace"
 
   namespace = local.name
 }
@@ -348,7 +348,7 @@ module "namespace" {
 ***************************************/
 
 module "grafana_db" {
-  source = "${var.pf_module_source}kube_pg_cluster${var.pf_module_ref}"
+  source = "../kube_pg_cluster"
 
   pg_cluster_namespace                 = local.namespace
   pg_initial_storage_gb                = 1
@@ -375,7 +375,7 @@ module "grafana_db" {
 ***************************************/
 
 module "thanos_redis_cache" {
-  source = "${var.pf_module_source}kube_redis_sentinel${var.pf_module_ref}"
+  source = "../kube_redis_sentinel"
 
   namespace                            = local.namespace
   replica_count                        = 3
@@ -419,7 +419,7 @@ resource "random_id" "metrics_bucket_name" {
 }
 
 module "metrics_bucket" {
-  source      = "${var.pf_module_source}aws_s3_private_bucket${var.pf_module_ref}"
+  source      = "../aws_s3_private_bucket"
   bucket_name = random_id.metrics_bucket_name.hex
   description = "Long term metrics storage"
 
@@ -477,7 +477,7 @@ resource "kubernetes_service_account" "prometheus" {
 }
 
 module "aws_permissions" {
-  source = "${var.pf_module_source}kube_sa_auth_aws${var.pf_module_ref}"
+  source = "../kube_sa_auth_aws"
 
   service_account           = kubernetes_service_account.prometheus.metadata[0].name
   service_account_namespace = local.namespace
@@ -498,7 +498,7 @@ resource "kubernetes_secret" "grafana_creds" {
 }
 
 module "prometheus_cert" {
-  source = "${var.pf_module_source}kube_internal_cert${var.pf_module_ref}"
+  source = "../kube_internal_cert"
 
   common_name   = "system:serviceaccount:${local.namespace}:${kubernetes_service_account.prometheus.metadata[0].name}"
   service_names = ["prometheus"]
@@ -1315,7 +1315,7 @@ resource "kubernetes_service_account" "thanos_compactor" {
 }
 
 module "aws_permissions_thanos_compactor" {
-  source = "${var.pf_module_source}kube_sa_auth_aws${var.pf_module_ref}"
+  source = "../kube_sa_auth_aws"
 
   service_account           = kubernetes_service_account.thanos_compactor.metadata[0].name
   service_account_namespace = local.namespace
@@ -1332,7 +1332,7 @@ resource "kubernetes_service_account" "thanos_store_gateway" {
 }
 
 module "aws_permissions_thanos_store_gateway" {
-  source = "${var.pf_module_source}kube_sa_auth_aws${var.pf_module_ref}"
+  source = "../kube_sa_auth_aws"
 
   service_account           = kubernetes_service_account.thanos_store_gateway.metadata[0].name
   service_account_namespace = local.namespace
@@ -1349,7 +1349,7 @@ resource "kubernetes_service_account" "thanos_ruler" {
 }
 
 module "aws_permissions_thanos_ruler" {
-  source = "${var.pf_module_source}kube_sa_auth_aws${var.pf_module_ref}"
+  source = "../kube_sa_auth_aws"
 
   service_account           = kubernetes_service_account.thanos_ruler.metadata[0].name
   service_account_namespace = local.namespace
@@ -1366,7 +1366,7 @@ resource "kubernetes_service_account" "thanos_bucket_web" {
 }
 
 module "aws_permissions_thanos_bucket_web" {
-  source = "${var.pf_module_source}kube_sa_auth_aws${var.pf_module_ref}"
+  source = "../kube_sa_auth_aws"
 
   service_account           = kubernetes_service_account.thanos_bucket_web.metadata[0].name
   service_account_namespace = local.namespace
@@ -2439,7 +2439,7 @@ resource "kubernetes_config_map" "dashboard" {
 
 module "authenticating_proxy" {
   count  = var.ingress_enabled && var.thanos_bucket_web_enable ? 1 : 0
-  source = "${var.pf_module_source}kube_vault_proxy${var.pf_module_ref}"
+  source = "../kube_vault_proxy"
 
   namespace                            = local.namespace
   spot_nodes_enabled                   = var.spot_nodes_enabled
@@ -2457,7 +2457,7 @@ module "authenticating_proxy" {
 
 module "bucket_web_ingress" {
   count  = var.ingress_enabled && var.thanos_bucket_web_enable ? 1 : 0
-  source = "${var.pf_module_source}kube_ingress${var.pf_module_ref}"
+  source = "../kube_ingress"
 
   namespace = local.namespace
   name      = "bucket-web"
@@ -2479,7 +2479,7 @@ module "bucket_web_ingress" {
 
 module "ingress" {
   count  = var.ingress_enabled ? 1 : 0
-  source = "${var.pf_module_source}kube_ingress${var.pf_module_ref}"
+  source = "../kube_ingress"
 
   namespace = local.namespace
   name      = "grafana"
@@ -2501,7 +2501,7 @@ module "ingress" {
 
 module "image_cache" {
   count  = var.node_image_cached_enabled ? 1 : 0
-  source = "${var.pf_module_source}kube_node_image_cache${var.pf_module_ref}"
+  source = "../kube_node_image_cache"
 
   images = [
     {

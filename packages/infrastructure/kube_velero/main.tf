@@ -40,7 +40,7 @@ data "pf_metadata" "metadata" {}
 data "aws_region" "current" {}
 
 module "util" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "velero"
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
@@ -54,11 +54,11 @@ module "util" {
 }
 
 module "constants" {
-  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
+  source = "../kube_constants"
 }
 
 module "namespace" {
-  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
+  source = "../kube_namespace"
 
   namespace = "velero"
 }
@@ -73,7 +73,7 @@ resource "random_id" "bucket_name" {
 }
 
 module "backup_bucket" {
-  source = "${var.pf_module_source}aws_s3_private_bucket${var.pf_module_ref}"
+  source = "../aws_s3_private_bucket"
 
   bucket_name = random_id.bucket_name.hex
   description = "State backups for the ${local.cluster_name} cluster"
@@ -130,7 +130,7 @@ resource "kubernetes_service_account" "velero" {
 }
 
 module "aws_permissions" {
-  source = "${var.pf_module_source}kube_sa_auth_aws${var.pf_module_ref}"
+  source = "../kube_sa_auth_aws"
 
   service_account           = kubernetes_service_account.velero.metadata[0].name
   service_account_namespace = local.namespace
@@ -513,7 +513,7 @@ resource "kubernetes_cluster_role_binding" "snapshot_gc" {
 }
 
 module "snapshot_gc" {
-  source = "${var.pf_module_source}kube_cron_job${var.pf_module_ref}"
+  source = "../kube_cron_job"
 
   name                        = "velero-snapshot-gc"
   namespace                   = local.namespace

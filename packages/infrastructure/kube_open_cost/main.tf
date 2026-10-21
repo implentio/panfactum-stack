@@ -41,7 +41,7 @@ data "pf_kube_labels" "labels" {
 data "pf_metadata" "metadata" {}
 
 module "util" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "open-cost"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -55,7 +55,7 @@ module "util" {
 }
 
 module "util_network_cost" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "network-cost"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -71,11 +71,11 @@ module "util_network_cost" {
 
 
 module "constants" {
-  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
+  source = "../kube_constants"
 }
 
 module "namespace" {
-  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
+  source = "../kube_namespace"
 
   namespace = "open-cost"
 }
@@ -114,7 +114,7 @@ data "aws_iam_policy_document" "spot_data" {
 }
 
 module "aws_permissions" {
-  source = "${var.pf_module_source}kube_sa_auth_aws${var.pf_module_ref}"
+  source = "../kube_sa_auth_aws"
 
   service_account           = kubernetes_service_account.open_cost.metadata[0].name
   service_account_namespace = local.namespace
