@@ -49,7 +49,7 @@ data "pf_aws_tags" "tags" {
 data "pf_metadata" "metadata" {}
 
 module "util" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name                        = "karpenter"
   az_spread_preferred                  = var.sla_target == 3
@@ -63,11 +63,11 @@ module "util" {
 }
 
 module "constants" {
-  source = "../kube_constants"
+  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
 }
 
 module "namespace" {
-  source = "../kube_namespace"
+  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
 
   namespace = local.name
 }
@@ -347,11 +347,14 @@ data "aws_iam_policy_document" "karpenter" {
     effect = "Allow"
     actions = [
       "ec2:DescribeAvailabilityZones",
+      "ec2:DescribeCapacityReservations",
       "ec2:DescribeImages",
       "ec2:DescribeInstances",
+      "ec2:DescribeInstanceStatus",
       "ec2:DescribeInstanceTypeOfferings",
       "ec2:DescribeInstanceTypes",
       "ec2:DescribeLaunchTemplates",
+      "ec2:DescribePlacementGroups",
       "ec2:DescribeSecurityGroups",
       "ec2:DescribeSpotPriceHistory",
       "ec2:DescribeSubnets"
@@ -362,6 +365,13 @@ data "aws_iam_policy_document" "karpenter" {
       values   = [data.aws_region.main.name]
       variable = "aws:RequestedRegion"
     }
+  }
+
+  statement {
+    sid       = "AllowUnscopedInstanceProfileListAction"
+    effect    = "Allow"
+    actions   = ["iam:ListInstanceProfiles"]
+    resources = ["*"]
   }
 
   statement {
@@ -528,7 +538,7 @@ resource "kubernetes_service_account" "karpenter" {
 }
 
 module "aws_permissions" {
-  source = "../kube_sa_auth_aws"
+  source = "${var.pf_module_source}kube_sa_auth_aws${var.pf_module_ref}"
 
   service_account           = kubernetes_service_account.karpenter.metadata[0].name
   service_account_namespace = local.namespace
@@ -684,6 +694,14 @@ resource "kubectl_manifest" "vpa" {
         evictionRequirements = [{
           resources         = ["cpu", "memory"]
           changeRequirement = "TargetHigherThanRequests"
+        }]
+      }
+      resourcePolicy = {
+        containerPolicies = [{
+          containerName = "controller"
+          minAllowed = {
+            memory = "1Gi"
+          }
         }]
       }
       targetRef = {
