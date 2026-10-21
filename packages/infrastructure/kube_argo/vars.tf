@@ -38,6 +38,18 @@ variable "pull_through_cache_enabled" {
   default     = true
 }
 
+variable "controller_memory_mb" {
+  description = "Memory request (and VPA floor) for the workflow-controller, in Mi. The limit is 1.3x this."
+  type        = number
+  default     = 50
+}
+
+variable "server_memory_mb" {
+  description = "Memory request (and VPA floor) for each argo-server pod, in Mi. The limit is 1.3x this."
+  type        = number
+  default     = 50
+}
+
 variable "log_level" {
   description = "The log level for the argo pods"
   type        = string
