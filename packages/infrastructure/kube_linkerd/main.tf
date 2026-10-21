@@ -43,7 +43,7 @@ locals {
 }
 
 module "util_cni" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name                        = "linkerd-cni"
   burstable_nodes_enabled              = true  // always true because needs to run on all nodes
@@ -72,13 +72,13 @@ module "util_cni" {
 }
 
 module "aws_pull_through" {
-  source = "../aws_ecr_pull_through_cache_addresses"
+  source = "${var.pf_module_source}aws_ecr_pull_through_cache_addresses${var.pf_module_ref}"
 
   pull_through_cache_enabled = var.pull_through_cache_enabled
 }
 
 module "util_destination" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name                        = "linkerd-destination"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -92,7 +92,7 @@ module "util_destination" {
 }
 
 module "util_identity" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name                        = "linkerd-identity"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -106,7 +106,7 @@ module "util_identity" {
 }
 
 module "util_proxy_injector" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name                        = "linkerd-proxy-injector"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -120,7 +120,7 @@ module "util_proxy_injector" {
 }
 
 module "util_proxy" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name               = "linkerd-proxy"
   pull_through_cache_enabled  = var.pull_through_cache_enabled
@@ -133,7 +133,7 @@ module "util_proxy" {
 }
 
 module "util_viz" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name               = "linkerd-viz"
   pull_through_cache_enabled  = var.pull_through_cache_enabled
@@ -145,7 +145,7 @@ module "util_viz" {
 }
 
 module "constants" {
-  source = "../kube_constants"
+  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
 }
 
 /***************************************
@@ -153,7 +153,7 @@ module "constants" {
 ***************************************/
 
 module "namespace" {
-  source = "../kube_namespace"
+  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
 
   namespace = local.name
 
@@ -173,7 +173,7 @@ module "namespace" {
 ///////////////////////////////////////////
 
 module "linkerd_identity_issuer" {
-  source = "../kube_internal_cert"
+  source = "${var.pf_module_source}kube_internal_cert${var.pf_module_ref}"
 
   secret_name = local.linkerd_identity_issuer
   common_name = "identity.linkerd.cluster.local"
@@ -209,7 +209,7 @@ resource "kubernetes_config_map" "ca_bundle" {
 }
 
 module "sync_ca_bundle" {
-  source = "../kube_sync_config_map"
+  source = "${var.pf_module_source}kube_sync_config_map${var.pf_module_ref}"
 
   config_map_name      = kubernetes_config_map.ca_bundle.metadata[0].name
   config_map_namespace = kubernetes_config_map.ca_bundle.metadata[0].namespace
@@ -222,7 +222,7 @@ module "sync_ca_bundle" {
 ///////////////////////////////////////////
 
 module "linkerd_policy_validator" {
-  source = "../kube_internal_cert"
+  source = "${var.pf_module_source}kube_internal_cert${var.pf_module_ref}"
 
   secret_name          = local.linkerd_policy_validator_webhook_secret
   service_names        = ["linkerd-policy-validator"]
@@ -235,7 +235,7 @@ module "linkerd_policy_validator" {
 
 
 module "linkerd_proxy_injector" {
-  source = "../kube_internal_cert"
+  source = "${var.pf_module_source}kube_internal_cert${var.pf_module_ref}"
 
   secret_name   = local.linkerd_proxy_injector_webhook_secret
   service_names = ["linkerd-proxy-injector"]
@@ -246,7 +246,7 @@ module "linkerd_proxy_injector" {
 
 
 module "linkerd_profile_validator" {
-  source = "../kube_internal_cert"
+  source = "${var.pf_module_source}kube_internal_cert${var.pf_module_ref}"
 
   secret_name   = local.linkerd_profile_validator_webhook_secret
   service_names = ["linkerd-sp-validator"]
@@ -278,7 +278,7 @@ resource "helm_release" "linkerd_cni" {
   name            = "linkerd-cni"
   repository      = "https://helm.linkerd.io/edge"
   chart           = "linkerd2-cni"
-  version         = var.linkerd_helm_version
+  version         = "2025.1.1" // First chart with iptablesMode "plain" (cni-plugin v1.6.0); the control plane stays on var.linkerd_helm_version
   recreate_pods   = false
   cleanup_on_fail = true
   wait            = true
@@ -287,10 +287,12 @@ resource "helm_release" "linkerd_cni" {
 
   values = [
     yamlencode({
-      podLabels         = module.util_cni.labels
+      # The chart has no podAnnotations; this label changes the pod template so the DaemonSet recreates pods and Kyverno injects the new remove-taint image
+      podLabels         = merge(module.util_cni.labels, { "panfactum.com/remove-taint-image" = "kubectl-1.30" })
       commonLabels      = module.util_cni.labels
       logLevel          = var.log_level
       priorityClassName = "system-node-critical"
+      iptablesMode      = "plain" // Bottlerocket 1.33 ships only iptables-legacy, 1.34 only iptables-nft; plain uses whatever `iptables` the node has
 
       resources = {
         memory = {
@@ -337,8 +339,6 @@ resource "kubernetes_cluster_role_binding" "linkerd_cni_node_patcher" {
   depends_on = [helm_release.linkerd_cni]
 }
 
-data "kubectl_server_version" "version" {}
-
 // hostNetwork=true is required so that the linkerd CNI can be installed
 // concurrently with the cilium CNI; the helm chart does not provide a way
 // to expose this
@@ -379,7 +379,8 @@ resource "kubectl_manifest" "linkerd_cni_policy" {
                     terminationGracePeriodSeconds = 10 // Accelerates node shutdown
 
                     # module.aws_pull_through is required as this isn't guaranteed to go through the global pod mutator
-                    image = "${module.aws_pull_through.docker_hub_registry}/bitnami/kubectl:${data.kubectl_server_version.version.major}.${data.kubectl_server_version.version.minor}"
+                    # Fixed tag: Bitnami removed versioned kubectl tags upstream and the pull-through cache serves only tags it already has. It only removes a taint, so skew is harmless.
+                    image = "${module.aws_pull_through.docker_hub_registry}/bitnami/kubectl:1.30"
                     command = [
                       "bash",
                       "-c",
@@ -560,8 +561,9 @@ resource "helm_release" "linkerd" {
       podLabels = merge(
         module.util_proxy.labels,
         {
+          // kustomize.sh writes destination/identity/proxy-injector.yaml into kustomize/ at apply time, so hash only committed files
           customizationHash = md5(join("", [
-            for filename in sort(fileset(path.module, "kustomize/*")) : filesha256(filename)
+            for filename in sort(fileset(path.module, "kustomize/{kustomization.yaml,kustomize.sh,podmonitor.yaml,remove-affinity-*.yaml}")) : filesha256(filename)
           ]))
         }
       )
@@ -748,7 +750,7 @@ resource "helm_release" "linkerd" {
 
 module "image_cache" {
   count  = var.node_image_cached_enabled ? 1 : 0
-  source = "../kube_node_image_cache"
+  source = "${var.pf_module_source}kube_node_image_cache${var.pf_module_ref}"
 
   images = [
 
@@ -1020,10 +1022,17 @@ resource "kubectl_manifest" "vpa_cni" {
     }
     spec = {
       resourcePolicy = {
-        containerPolicies = [{
-          containerName = "remove-taint"
-          mode          = "Off"
-        }]
+        containerPolicies = [
+          {
+            containerName = "remove-taint"
+            mode          = "Off"
+          },
+          {
+            // VPA sizes the limit from the ~11Mi steady state, but copying the CNI binaries at startup peaks near 30Mi and was OOMKilled; the 128Mi floor gives a limit near 141Mi, about 4.7x the peak, close to the chart default of 100Mi request / 110Mi limit
+            containerName = "install-cni"
+            minAllowed    = { memory = "128Mi" }
+          }
+        ]
       }
       updatePolicy = {
         updateMode = "Auto"
