@@ -30,8 +30,6 @@ locals {
   name      = "ingress-nginx"
   namespace = module.namespace.namespace
 
-  plugin_name = "panfactum-plugin-lua"
-
   // This has to be THIS name in order for it to
   // replace the self-generated cert secret from the helm chart
   webhook_secret = "nginx-admission"
@@ -66,7 +64,7 @@ data "pf_kube_labels" "labels" {
 }
 
 module "util" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name               = "nginx-ingress"
   burstable_nodes_enabled     = var.burstable_nodes_enabled
@@ -86,11 +84,11 @@ module "util" {
 }
 
 module "constants" {
-  source = "../kube_constants"
+  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
 }
 
 module "namespace" {
-  source = "../kube_namespace"
+  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
 
   namespace            = local.name
   loadbalancer_enabled = true
@@ -101,7 +99,7 @@ module "namespace" {
 ************************************************/
 
 module "webhook_cert" {
-  source = "../kube_internal_cert"
+  source = "${var.pf_module_source}kube_internal_cert${var.pf_module_ref}"
 
   service_names = ["nginx-controller-admission"]
   secret_name   = local.webhook_secret
@@ -130,22 +128,12 @@ resource "kubernetes_secret" "dhparam" {
 ************************************************/
 
 module "nlb_common" {
-  source = "../kube_nlb_common_resources"
+  source = "${var.pf_module_source}kube_nlb_common_resources${var.pf_module_ref}"
 
   name_prefix = "nginx-"
 
   // Should be the same as the termination grace period seconds (minus the controller exit time)
   deregistration_delay_seconds = local.deregistration_buffer + ceil(local.nginx_base_timeout * 1.5)
-}
-
-resource "kubernetes_config_map" "plugin" {
-  metadata {
-    name      = local.name
-    namespace = local.namespace
-  }
-  data = {
-    plugin = file("${path.module}/plugin.lua")
-  }
 }
 
 resource "helm_release" "nginx_ingress" {
@@ -174,14 +162,6 @@ resource "helm_release" "nginx_ingress" {
         annotations = {
           // Required b/c the webhook certificate doesn't automatically renew
           "reloader.stakater.com/auto" = "true"
-        }
-
-        podAnnotations = {
-          // Ensure the pods are restarted when the plugin code changes
-          "panfactum.com/plugin-hash" = filemd5("${path.module}/plugin.lua")
-
-          // Forces a reload if the kustomization fails
-          customizationHash = md5(join("", [for filename in sort(fileset(path.module, "kustomize/*")) : filesha256(filename)]))
         }
 
         extraArgs = {
@@ -272,14 +252,20 @@ resource "helm_release" "nginx_ingress" {
           // HSTS setup
           hsts                    = "true"
           hsts-include-subdomains = "true"
-          hsts-max-age            = "${10 * 365 * 24 * 60 * 60}"
+          hsts-max-age            = tostring(10 * 365 * 24 * 60 * 60) // "${...}" stays a number; Helm renders numbers >= 1e6 as 3.1536e+08
           hsts-preload            = "true"
 
           // Hide identifying headers for security
           hide-headers = "server,x-powered-by,x-aspnet-version,x-aspnetmvc-version"
 
-          // Provides a status endpoint
-          http-snippet = file("${path.module}/nginx_status_snippet.txt")
+          // Status endpoint plus the security header maps; controller v1.12 removed the Lua hook that set them
+          http-snippet = join("\n", [file("${path.module}/nginx_status_snippet.txt"), file("${path.module}/pf_headers_snippet.txt")])
+
+          // Runs after each ingress's configuration-snippet, so it can read the $pf_* variables kube_ingress sets
+          location-snippet = file("${path.module}/pf_location_snippet.txt")
+
+          // configuration-snippet is Critical risk; v1.12 lowered the default to High, which rejects kube_ingress
+          annotations-risk-level = "Critical"
         }
         service = {
           name              = local.name
@@ -369,31 +355,11 @@ resource "helm_release" "nginx_ingress" {
             subPath   = "tls.key"
             name      = "webhook-cert"
             readOnly  = true
-          },
-          {
-            mountPath = "/etc/nginx/lua/plugins/panfactum/main.lua"
-            subPath   = "plugin"
-            name      = local.name
-            readOnly  = true
-          }
-        ]
-        extraVolumes = [
-          {
-            name = local.name
-            configMap = {
-              name = local.name
-            }
           }
         ]
       }
     })
   ]
-
-  // The helm chart doesn't allow enabling plugins for some reason
-  // so we manually inject the "plugins" field into the configmap
-  postrender {
-    binary_path = "${path.module}/kustomize/kustomize.sh"
-  }
 
   timeout    = 60 * 30
   depends_on = [module.webhook_cert]
@@ -494,13 +460,13 @@ resource "kubectl_manifest" "vpa_nginx" {
 
 module "image_cache" {
   count  = var.node_image_cached_enabled ? 1 : 0
-  source = "../kube_node_image_cache"
+  source = "${var.pf_module_source}kube_node_image_cache${var.pf_module_ref}"
 
   images = [
     {
       registry   = "registry.k8s.io"
       repository = "ingress-nginx/controller"
-      tag        = "v1.11.3@sha256:d56f135b6462cfc476447cfe564b83a45e8bb7da2774963b00d12161112270b7"
+      tag        = "v1.15.1@sha256:594ceea76b01c592858f803f9ff4d2cb40542cae2060410b2c95f75907d659e1"
     }
   ]
 }

@@ -3,13 +3,13 @@
 variable "pvc_autoresizer_helm_version" {
   description = "The version of the pvc-autoresizer helm chart to deploy"
   type        = string
-  default     = "0.13.0"
+  default     = "0.20.1"
 }
 
 variable "pvc_autoresizer_version" {
-  description = "The commit sha of the pvc-autoresizer to deploy"
+  description = "The pvc-autoresizer image reference (tag) to deploy"
   type        = string
-  default     = "0723820ac895cfe86f49a2f582da59f95f02d9ae"
+  default     = "0.21.2"
 }
 
 variable "vpa_enabled" {

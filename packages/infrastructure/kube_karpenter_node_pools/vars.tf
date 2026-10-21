@@ -51,14 +51,26 @@ variable "node_security_group_id" {
   type        = string
 }
 
+variable "min_node_memory_mb" {
+  description = "The minimum memory for any single provisioned node (in MB)"
+  type        = number
+  default     = 2500
+}
+
 variable "max_node_memory_mb" {
   description = "The maximum memory for any single provisioned node (in MB)"
   type        = number
   default     = 65536
 }
 
+variable "min_node_cpu" {
+  description = "The minimum number of vCPUs for any single provisioned node"
+  type        = number
+  default     = 0 # To allow smaller instances
+}
+
 variable "max_node_cpu" {
-  description = "The maximum number of CPUs for any single provisioned node (in MB)"
+  description = "The maximum number of vCPUs for any single provisioned node"
   type        = number
   default     = 32
 }
@@ -66,11 +78,23 @@ variable "max_node_cpu" {
 variable "arm64_node_ami_name" {
   description = "The name of the AMI to use for the amd64 nodes that Karpenter creates."
   type        = string
-  default     = "bottlerocket-aws-k8s-1.30-aarch64-v1.28.0-0ab4fab4"
+  default     = "bottlerocket-aws-k8s-1.31-aarch64-v1.41.0-bc3ad241"
 }
 
 variable "amd64_node_ami_name" {
   description = "The name of the AMI to use for the amd64 nodes that Karpenter creates."
   type        = string
-  default     = "bottlerocket-aws-k8s-1.30-x86_64-v1.28.0-0ab4fab4"
+  default     = "bottlerocket-aws-k8s-1.31-x86_64-v1.41.0-bc3ad241"
+}
+
+variable "default_termination_grace_period" {
+  description = "The default termination grace period for on-demand nodes."
+  type        = string
+  default     = "1h0m0s"
+}
+
+variable "wf_node_pools_enabled" {
+  description = "Whether to create the wf_* node pools (an unused attempt at warm pools for Argo)."
+  type        = bool
+  default     = true
 }

@@ -14,3 +14,7 @@ patches:
     target:
       kind: Deployment
       name: pvc-autoresizer-controller
+  - path: selector.yaml
+    target:
+      kind: Deployment
+      name: pvc-autoresizer-controller

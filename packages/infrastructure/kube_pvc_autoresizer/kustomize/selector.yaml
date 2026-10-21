@@ -1,0 +1,3 @@
+# Chart 0.16+ adds this selector label; Deployment selectors are immutable, so keep the 0.13.0 selector
+- op: remove
+  path: /spec/selector/matchLabels/app.kubernetes.io~1instance

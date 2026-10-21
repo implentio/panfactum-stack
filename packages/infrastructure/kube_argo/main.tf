@@ -38,6 +38,42 @@ locals {
   namespace = module.namespace.namespace
 
   configmap_name = "argo-controller"
+
+  persistence = {
+    archive           = true
+    archiveTTL        = var.workflow_archive_ttl
+    nodeStatusOffLoad = true # Helps to circumvent etcd limits on workload sizes
+    # A pg-af8b primary change (about six a day) kills every session, and Argo's pgx v4 driver
+    # reuses a dead pooled connection without a check: expire connections fast, keep few idle.
+    # Set all three: once the block exists Argo applies all of them (an omitted one becomes 0).
+    connectionPool = {
+      maxIdleConns    = 2
+      maxOpenConns    = 0
+      connMaxLifetime = "30s"
+    }
+    postgresql = {
+      host      = module.database.pooler_rw_service_name
+      port      = module.database.pooler_rw_service_port
+      database  = module.database.database
+      tableName = "argo_workflows"
+      ssl       = true
+      sslMode   = "require"
+      userNameSecret = {
+        name = kubernetes_secret.db_creds.metadata[0].name
+        key  = "username"
+      }
+      passwordSecret = {
+        name = kubernetes_secret.db_creds.metadata[0].name
+        key  = "password"
+      }
+    }
+  }
+
+  # argo-server opens its archive pool only at startup, and force_update reverts the Reloader
+  # restart a config change starts, so the pod templates carry the block's hash themselves.
+  persistence_annotations = {
+    "checksum/persistence" = sha1(jsonencode(local.persistence))
+  }
 }
 
 data "aws_region" "current" {}
@@ -47,7 +83,7 @@ data "pf_kube_labels" "labels" {
 }
 
 module "util_controller" {
-  source                               = "../kube_workload_utility"
+  source                               = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
   workload_name                        = "argo-controller"
   host_anti_affinity_required          = false // single instance
   instance_type_anti_affinity_required = false // single instance
@@ -62,7 +98,7 @@ module "util_controller" {
 }
 
 module "util_server" {
-  source                               = "../kube_workload_utility"
+  source                               = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
   workload_name                        = "argo-server"
   host_anti_affinity_required          = var.sla_target >= 2
   instance_type_anti_affinity_required = var.sla_target == 3
@@ -76,7 +112,7 @@ module "util_server" {
 }
 
 module "util_events_controller" {
-  source                               = "../kube_workload_utility"
+  source                               = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
   workload_name                        = "argo-events-controller"
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
   pull_through_cache_enabled           = var.pull_through_cache_enabled
@@ -91,7 +127,7 @@ module "util_events_controller" {
 }
 
 module "util_webhook" {
-  source                               = "../kube_workload_utility"
+  source                               = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
   workload_name                        = "argo-webhook"
   host_anti_affinity_required          = var.sla_target >= 2
   instance_type_anti_affinity_required = var.sla_target == 3
@@ -105,7 +141,7 @@ module "util_webhook" {
 }
 
 module "constants" {
-  source = "../kube_constants"
+  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
 }
 
 /***************************************
@@ -113,7 +149,7 @@ module "constants" {
 ***************************************/
 
 module "namespace" {
-  source = "../kube_namespace"
+  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
 
   namespace = local.name
 }
@@ -180,7 +216,7 @@ resource "random_id" "bucket_name" {
 }
 
 module "artifact_bucket" {
-  source      = "../aws_s3_private_bucket"
+  source      = "${var.pf_module_source}aws_s3_private_bucket${var.pf_module_ref}"
   bucket_name = random_id.bucket_name.hex
   description = "Artifact repository for Argo"
 
@@ -214,7 +250,7 @@ data "aws_iam_policy_document" "argo" {
 }
 
 module "aws_permissions" {
-  source = "../kube_sa_auth_aws"
+  source = "${var.pf_module_source}kube_sa_auth_aws${var.pf_module_ref}"
 
   service_account           = kubernetes_service_account.argo_server.metadata[0].name
   service_account_namespace = local.namespace
@@ -243,7 +279,7 @@ resource "kubernetes_config_map" "artifacts" {
 }
 
 module "sync_artifact_config_map" {
-  source = "../kube_sync_config_map"
+  source = "${var.pf_module_source}kube_sync_config_map${var.pf_module_ref}"
 
   config_map_name      = kubernetes_config_map.artifacts.metadata[0].name
   config_map_namespace = kubernetes_config_map.artifacts.metadata[0].namespace
@@ -254,7 +290,7 @@ module "sync_artifact_config_map" {
 ***************************************/
 
 module "database" {
-  source = "../kube_pg_cluster"
+  source = "${var.pf_module_source}kube_pg_cluster${var.pf_module_ref}"
 
   pg_cluster_namespace                 = local.namespace
   pg_initial_storage_gb                = 2
@@ -319,6 +355,20 @@ resource "kubernetes_secret" "sso_info" {
   }
 }
 
+# Vault dynamic creds renew on a lease, and each renewal made Reloader restart the controller (resetting @every schedules).
+# The root password changes only when an apply runs after the 7-day time_rotating in kube_pg_cluster.
+resource "kubernetes_secret" "db_creds" {
+  metadata {
+    name      = "argo-pg-root-creds"
+    namespace = local.namespace
+    labels    = module.util_controller.labels
+  }
+  data = {
+    username = module.database.root_username
+    password = module.database.root_password
+  }
+}
+
 resource "helm_release" "argo" {
   namespace       = local.namespace
   name            = "argo"
@@ -367,31 +417,11 @@ resource "helm_release" "argo" {
           create = true
           name   = local.configmap_name
         }
-        persistence = {
-          archive           = true
-          archiveTTL        = var.workflow_archive_ttl
-          nodeStatusOffLoad = true # Helps to circumvent etcd limits on workload sizes
-          postgresql = {
-            host      = module.database.pooler_rw_service_name
-            port      = module.database.pooler_rw_service_port
-            database  = module.database.database
-            tableName = "argo_workflows"
-            ssl       = true
-            sslMode   = "require"
-            userNameSecret = {
-              name = module.database.superuser_creds_secret
-              key  = "username"
-            }
-            passwordSecret = {
-              name = module.database.superuser_creds_secret
-              key  = "password"
-            }
-          }
-        }
+        persistence = local.persistence
 
         deploymentAnnotations = {
           "configmap.reloader.stakater.com/reload" = local.configmap_name
-          "secret.reloader.stakater.com/reload"    = "${kubernetes_secret.sso_info.metadata[0].name},${module.database.superuser_creds_secret}"
+          "secret.reloader.stakater.com/reload"    = "${kubernetes_secret.sso_info.metadata[0].name},${kubernetes_secret.db_creds.metadata[0].name}"
         }
 
         logging = {
@@ -399,6 +429,7 @@ resource "helm_release" "argo" {
           level  = var.log_level
         }
 
+        podAnnotations = local.persistence_annotations
         podLabels = merge(
           module.util_controller.labels,
           {
@@ -415,11 +446,11 @@ resource "helm_release" "argo" {
         }
         resources = {
           requests = {
-            memory = "50Mi"
+            memory = "${var.controller_memory_mb}Mi"
             cpu    = "100m"
           }
           limits = {
-            memory = "${floor(50 * 1.3)}Mi"
+            memory = "${floor(var.controller_memory_mb * 1.3)}Mi"
           }
         }
       }
@@ -431,7 +462,8 @@ resource "helm_release" "argo" {
             cpu    = "10m"
           }
           limits = {
-            memory = "70Mi"
+            # Since Argo v3.7.10 the init container peaks above 70Mi (59 OOMKills in prod 2026-10-14..16).
+            memory = "256Mi"
           }
         }
       }
@@ -462,13 +494,14 @@ resource "helm_release" "argo" {
         }
         deploymentAnnotations = {
           "configmap.reloader.stakater.com/reload" = local.configmap_name
-          "secret.reloader.stakater.com/reload"    = "${kubernetes_secret.sso_info.metadata[0].name},${module.database.superuser_creds_secret}"
+          "secret.reloader.stakater.com/reload"    = "${kubernetes_secret.sso_info.metadata[0].name},${kubernetes_secret.db_creds.metadata[0].name}"
         }
         logging = {
           format = "json"
           level  = var.log_level
         }
-        podLabels = module.util_server.labels
+        podAnnotations = local.persistence_annotations
+        podLabels      = module.util_server.labels
 
         replicas                  = 2
         priorityClassName         = module.constants.cluster_important_priority_class_name
@@ -480,11 +513,11 @@ resource "helm_release" "argo" {
         }
         resources = {
           requests = {
-            memory = "50Mi"
+            memory = "${var.server_memory_mb}Mi"
             cpu    = "100m"
           }
           limits = {
-            memory = "${floor(50 * 1.3)}Mi"
+            memory = "${floor(var.server_memory_mb * 1.3)}Mi"
           }
         }
 
@@ -492,12 +525,13 @@ resource "helm_release" "argo" {
     })
   ]
 
-  depends_on = [module.database]
+  # VPAs first: a pod the upgrade rolls is sized at admission, and prod runs no vpa-updater to fix it later.
+  depends_on = [module.database, kubectl_manifest.vpa_controller, kubectl_manifest.vpa_server]
 }
 
 module "ingress" {
   count  = var.ingress_enabled ? 1 : 0
-  source = "../kube_ingress"
+  source = "${var.pf_module_source}kube_ingress${var.pf_module_ref}"
 
   namespace = local.namespace
   name      = "argo-server"
@@ -532,7 +566,7 @@ resource "kubectl_manifest" "vpa_controller" {
         containerPolicies = [{
           containerName = "controller"
           minAllowed = {
-            memory = "50Mi"
+            memory = "${var.controller_memory_mb}Mi"
           }
         }]
       }
@@ -552,7 +586,6 @@ resource "kubectl_manifest" "vpa_controller" {
   })
   force_conflicts   = true
   server_side_apply = true
-  depends_on        = [helm_release.argo]
 }
 
 resource "kubectl_manifest" "pdb_controller" {
@@ -592,7 +625,7 @@ resource "kubectl_manifest" "vpa_server" {
         containerPolicies = [{
           containerName = "argo-server"
           minAllowed = {
-            memory = "50Mi"
+            memory = "${var.server_memory_mb}Mi"
           }
         }]
       }
@@ -612,7 +645,6 @@ resource "kubectl_manifest" "vpa_server" {
   })
   force_conflicts   = true
   server_side_apply = true
-  depends_on        = [helm_release.argo]
 }
 
 resource "kubectl_manifest" "pdb_server" {
@@ -638,7 +670,7 @@ resource "kubectl_manifest" "pdb_server" {
 }
 
 module "image_cache" {
-  source = "../kube_node_image_cache"
+  source = "${var.pf_module_source}kube_node_image_cache${var.pf_module_ref}"
   images = [
     {
       registry   = "quay.io"
@@ -683,8 +715,9 @@ resource "helm_release" "argo_events" {
         podLabels = merge(
           module.util_events_controller.labels,
           {
+            # Skip dotfiles: terragrunt writes a .terragrunt-source-manifest with absolute paths into local sources.
             customizationHash = md5(join("", [
-              for filename in sort(fileset(path.module, "kustomize_events/*")) : filesha256(filename)
+              for filename in sort(fileset(path.module, "kustomize_events/*")) : filesha256(filename) if !startswith(basename(filename), ".")
             ]))
           }
         )
@@ -708,11 +741,16 @@ resource "helm_release" "argo_events" {
 
       webhook = {
         enabled = true
+        image = {
+          repository = "${module.constants.images.argo-events.registry}/${module.constants.images.argo-events.repository}"
+          tag        = module.constants.images.argo-events.tag
+        }
         podLabels = merge(
           module.util_webhook.labels,
           {
+            # Skip dotfiles: terragrunt writes a .terragrunt-source-manifest with absolute paths into local sources.
             customizationHash = md5(join("", [
-              for filename in sort(fileset(path.module, "kustomize_events/*")) : filesha256(filename)
+              for filename in sort(fileset(path.module, "kustomize_events/*")) : filesha256(filename) if !startswith(basename(filename), ".")
             ]))
           }
         )
@@ -1136,7 +1174,7 @@ resource "kubernetes_config_map" "test_scripts" {
 
 module "test_workflow" {
   count  = var.test_workflow_enabled ? 1 : 0
-  source = "../wf_spec"
+  source = "${var.pf_module_source}wf_spec${var.pf_module_ref}"
 
   name                        = "test"
   namespace                   = local.namespace

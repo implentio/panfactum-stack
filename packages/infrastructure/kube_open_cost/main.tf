@@ -41,7 +41,7 @@ data "pf_kube_labels" "labels" {
 data "pf_metadata" "metadata" {}
 
 module "util" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name                        = "open-cost"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -55,7 +55,7 @@ module "util" {
 }
 
 module "util_network_cost" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name                        = "network-cost"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -71,11 +71,11 @@ module "util_network_cost" {
 
 
 module "constants" {
-  source = "../kube_constants"
+  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
 }
 
 module "namespace" {
-  source = "../kube_namespace"
+  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
 
   namespace = "open-cost"
 }
@@ -114,7 +114,7 @@ data "aws_iam_policy_document" "spot_data" {
 }
 
 module "aws_permissions" {
-  source = "../kube_sa_auth_aws"
+  source = "${var.pf_module_source}kube_sa_auth_aws${var.pf_module_ref}"
 
   service_account           = kubernetes_service_account.open_cost.metadata[0].name
   service_account_namespace = local.namespace
@@ -496,7 +496,9 @@ resource "kubectl_manifest" "network_cost" {
                 memory = "100Mi"
               }
               limits = {
-                memory = "130Mi"
+                # Conntrack reads on busy nodes spike past the limit between scrapes (scraped peak ~28Mi),
+                # causing OOMKills. Raised from 130Mi.
+                memory = "256Mi"
               }
             }
           }]
@@ -576,6 +578,14 @@ resource "kubectl_manifest" "vpa_network_cost" {
         apiVersion = "apps/v1"
         kind       = "DaemonSet"
         name       = "network-cost"
+      }
+      # Without this, VPA scales the limit with its ~12-36MB request recommendation, which put live
+      # limits at 15-47MB and caused the OOMKills. Keep the DaemonSet's 256Mi limit fixed.
+      resourcePolicy = {
+        containerPolicies = [{
+          containerName    = "network-cost"
+          controlledValues = "RequestsOnly"
+        }]
       }
     }
   })

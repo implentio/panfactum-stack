@@ -40,7 +40,7 @@ data "pf_metadata" "metadata" {}
 data "aws_region" "current" {}
 
 module "util" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name                        = "velero"
   panfactum_scheduler_enabled          = var.panfactum_scheduler_enabled
@@ -48,15 +48,17 @@ module "util" {
   instance_type_anti_affinity_required = false // single replica
   az_spread_preferred                  = false // single replica
   controller_nodes_required            = true  // we disable voluntary disruptions so this should be scheduled on a node that isn't autoscaled
-  extra_labels                         = data.pf_kube_labels.labels.labels
+  // Controller nodes carry the burstable taint; without this the pod cannot schedule.
+  burstable_nodes_enabled = true
+  extra_labels            = data.pf_kube_labels.labels.labels
 }
 
 module "constants" {
-  source = "../kube_constants"
+  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
 }
 
 module "namespace" {
-  source = "../kube_namespace"
+  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
 
   namespace = "velero"
 }
@@ -71,7 +73,7 @@ resource "random_id" "bucket_name" {
 }
 
 module "backup_bucket" {
-  source = "../aws_s3_private_bucket"
+  source = "${var.pf_module_source}aws_s3_private_bucket${var.pf_module_ref}"
 
   bucket_name = random_id.bucket_name.hex
   description = "State backups for the ${local.cluster_name} cluster"
@@ -128,7 +130,7 @@ resource "kubernetes_service_account" "velero" {
 }
 
 module "aws_permissions" {
-  source = "../kube_sa_auth_aws"
+  source = "${var.pf_module_source}kube_sa_auth_aws${var.pf_module_ref}"
 
   service_account           = kubernetes_service_account.velero.metadata[0].name
   service_account_namespace = local.namespace
@@ -217,6 +219,14 @@ resource "helm_release" "velero" {
 
       cleanUpCRDs = true
       upgradeCRDs = true
+      // Bitnami removed docker.io/bitnami/kubectl tags; the CRD upgrade hook cannot pull without this.
+      kubectl = {
+        image = {
+          repository = "docker.io/bitnamilegacy/kubectl"
+          # The chart defaults the tag to the cluster minor, and bitnamilegacy stops at 1.33. The hook only applies CRDs.
+          tag = "1.33.4"
+        }
+      }
 
 
       serviceAccount = {
@@ -336,7 +346,7 @@ resource "kubectl_manifest" "vpa" {
         containerPolicies = [{
           containerName = "velero"
           minAllowed = {
-            memory = "256Mi"
+            memory = "${var.velero_minimum_memory_mb}Mi"
           }
         }]
       }
@@ -381,6 +391,89 @@ resource "kubectl_manifest" "pdb" {
   depends_on        = [helm_release.velero]
 }
 
+// Velero reads only the exclusion label, not the annotation workloads set on ephemeral PVCs.
+// Unlabeled PVCs that vanish mid-backup fail it (#4244).
+locals {
+  pod_owned_pvc_precondition = {
+    // StatefulSet PVCs have no ownerReferences; without the `[]` fallback length() errors and Kyverno denies them.
+    key      = "{{ request.object.metadata.ownerReferences || `[]` | [?kind=='Pod'] | length(@) }}"
+    operator = "GreaterThan"
+    value    = 0
+  }
+  exclude_from_backup_patch = {
+    metadata = { labels = { "velero.io/exclude-from-backup" = "true" } }
+  }
+  pvc_match = {
+    any = [{ resources = { kinds = ["PersistentVolumeClaim"] } }]
+  }
+}
+
+resource "kubectl_manifest" "exclude_new_pod_owned_pvcs" {
+  yaml_body = yamlencode({
+    apiVersion = "kyverno.io/v1"
+    kind       = "ClusterPolicy"
+    metadata = {
+      name   = "velero-exclude-new-pod-owned-pvcs"
+      labels = module.util.labels
+    }
+    spec = {
+      admission  = true
+      background = false
+      rules = [{
+        name          = "label-pvc"
+        match         = local.pvc_match
+        preconditions = { all = [local.pod_owned_pvc_precondition] }
+        mutate        = { patchStrategicMerge = local.exclude_from_backup_patch }
+      }]
+    }
+  })
+  server_side_apply = true
+  force_conflicts   = true
+}
+
+// Kyverno only allows mutating existing resources when every rule in the policy has targets,
+// so this cannot share a policy with the admission rule above.
+resource "kubectl_manifest" "exclude_existing_pod_owned_pvcs" {
+  yaml_body = yamlencode({
+    apiVersion = "kyverno.io/v1"
+    kind       = "ClusterPolicy"
+    metadata = {
+      name   = "velero-exclude-existing-pod-owned-pvcs"
+      labels = module.util.labels
+    }
+    spec = {
+      admission                    = true
+      background                   = false
+      mutateExistingOnPolicyUpdate = true
+      rules = [{
+        name  = "label-pvc"
+        match = local.pvc_match
+        preconditions = {
+          all = [
+            local.pod_owned_pvc_precondition,
+            {
+              key      = "{{ request.object.metadata.labels.\"velero.io/exclude-from-backup\" || '' }}"
+              operator = "NotEquals"
+              value    = "true"
+            }
+          ]
+        }
+        mutate = {
+          targets = [{
+            apiVersion = "v1"
+            kind       = "PersistentVolumeClaim"
+            namespace  = "{{ request.object.metadata.namespace }}"
+            name       = "{{ request.object.metadata.name }}"
+          }]
+          patchStrategicMerge = local.exclude_from_backup_patch
+        }
+      }]
+    }
+  })
+  server_side_apply = true
+  force_conflicts   = true
+}
+
 /***************************************
 * VolumeSnapshot Garbage Collection
 *
@@ -420,7 +513,7 @@ resource "kubernetes_cluster_role_binding" "snapshot_gc" {
 }
 
 module "snapshot_gc" {
-  source = "../kube_cron_job"
+  source = "${var.pf_module_source}kube_cron_job${var.pf_module_ref}"
 
   name                        = "velero-snapshot-gc"
   namespace                   = local.namespace
@@ -430,7 +523,8 @@ module "snapshot_gc" {
   burstable_nodes_enabled     = true
   vpa_enabled                 = var.vpa_enabled
 
-  cron_schedule = "0 0 * * *"
+  // Offset from the hourly backup at :00. The job runs up to 1h and deletes objects that backup is reading.
+  cron_schedule = "30 0 * * *"
   containers = [{
     name             = "garbage-collector"
     image_registry   = "public.ecr.aws"
@@ -439,9 +533,19 @@ module "snapshot_gc" {
     command = [
       "/bin/pf-velero-snapshot-gc"
     ]
-    minimum_memory = 50
+    # Holds the full `kubectl get volumesnapshot -A -o json` output while the backlog is large.
+    minimum_memory = 256
   }]
+  # The script's `<<<` here-string spills to a temp file once the snapshot list passes the pipe
+  # buffer, which fails on the read-only root filesystem and stops all GC.
+  tmp_directories = {
+    tmp = { mount_path = "/tmp" }
+  }
   starting_deadline_seconds = 60 * 5
-  active_deadline_seconds   = 60 * 5
+  # Each orphan costs several kubectl calls; 5 minutes cannot clear a backlog of thousands.
+  active_deadline_seconds = 60 * 60
+  # Keeps the last successful Job for 48h so kube_job_status_completion_time outlives the 26h alert window.
+  successful_jobs_history_limit = 1
+  ttl_seconds_after_finished    = 60 * 60 * 48
 }
 

@@ -63,7 +63,7 @@ data "pf_kube_labels" "labels" {
 }
 
 module "util_read" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name                        = "loki-read"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -77,7 +77,7 @@ module "util_read" {
 }
 
 module "util_write" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name                        = "loki-write"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -91,7 +91,7 @@ module "util_write" {
 }
 
 module "util_backend" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name                        = "loki-backend"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -105,7 +105,7 @@ module "util_backend" {
 }
 
 module "util_canary" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name                        = "loki-canary"
   panfactum_scheduler_enabled          = false
@@ -119,7 +119,7 @@ module "util_canary" {
 }
 
 module "constants" {
-  source = "../kube_constants"
+  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
 }
 
 /***************************************
@@ -127,7 +127,7 @@ module "constants" {
 ***************************************/
 
 module "namespace" {
-  source = "../kube_namespace"
+  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
 
   namespace = local.name
 }
@@ -137,7 +137,7 @@ module "namespace" {
 ***************************************/
 
 module "redis_cache" {
-  source = "../kube_redis_sentinel"
+  source = "${var.pf_module_source}kube_redis_sentinel${var.pf_module_ref}"
 
   namespace                            = local.namespace
   replica_count                        = 3
@@ -153,6 +153,21 @@ module "redis_cache" {
   instance_type_anti_affinity_required = var.enhanced_ha_enabled
 }
 
+// Vault superuser creds exist only on the master until creds-syncer copies them, so Loki got
+// WRONGPASS during failovers. The root user is set on every node at start and does not expire.
+resource "kubernetes_secret" "redis_root_creds" {
+  type = "kubernetes.io/basic-auth"
+  metadata {
+    name      = "loki-redis-root-creds"
+    namespace = local.namespace
+    labels    = module.util_backend.labels
+  }
+  data = {
+    username = module.redis_cache.root_name
+    password = module.redis_cache.root_password
+  }
+}
+
 /***************************************
 * Logs Storage
 ***************************************/
@@ -162,7 +177,7 @@ resource "random_id" "logs_bucket_name" {
 }
 
 module "logs_bucket" {
-  source      = "../aws_s3_private_bucket"
+  source      = "${var.pf_module_source}aws_s3_private_bucket${var.pf_module_ref}"
   bucket_name = random_id.logs_bucket_name.hex
   description = "Long term logs storage"
 
@@ -175,7 +190,7 @@ resource "random_id" "loki_ruler_bucket_name" {
 }
 
 module "loki_ruler_bucket" {
-  source      = "../aws_s3_private_bucket"
+  source      = "${var.pf_module_source}aws_s3_private_bucket${var.pf_module_ref}"
   bucket_name = random_id.loki_ruler_bucket_name.hex
   description = "Loki ruler storage"
 
@@ -227,7 +242,7 @@ resource "kubernetes_service_account" "loki" {
 }
 
 module "loki_aws_permissions" {
-  source = "../kube_sa_auth_aws"
+  source = "${var.pf_module_source}kube_sa_auth_aws${var.pf_module_ref}"
 
   service_account           = kubernetes_service_account.loki.metadata[0].name
   service_account_namespace = local.namespace
@@ -287,7 +302,7 @@ resource "helm_release" "loki" {
           }
 
           frontend = {
-            scheduler_address         = "loki-backend.${local.namespace}.svc.cluster.local:9095"
+            scheduler_address         = "loki-query-scheduler-discovery.${local.namespace}.svc.cluster.local:9095"
             tail_proxy_url            = "http://loki-backend.${local.namespace}.svc.cluster.local:3100"
             graceful_shutdown_timeout = "90s"
             compress_responses        = true
@@ -295,7 +310,7 @@ resource "helm_release" "loki" {
           }
 
           frontend_worker = {
-            scheduler_address = "loki-backend.${local.namespace}.svc.cluster.local:9095"
+            scheduler_address = "loki-query-scheduler-discovery.${local.namespace}.svc.cluster.local:9095"
           }
 
           compactor = {
@@ -317,6 +332,13 @@ resource "helm_release" "loki" {
             split_queries_by_interval     = "15m"
             volume_enabled                = true
             retention_period              = "${var.log_retention_period_hours}h"
+            # 13 canaries (one per node) plus human tails exceeded the default limit of 10
+            max_concurrent_tail_requests = 100
+            # Bursts hit the default 4 MiB/s global rate, split across 3 distributors
+            ingestion_rate_mb       = 12
+            ingestion_burst_size_mb = 24
+            # Peak about 4.9k streams per ingester against the 5000 default
+            max_global_streams_per_user = 10000
           }
 
 
@@ -521,7 +543,7 @@ resource "helm_release" "loki" {
             name = "REDIS_USERNAME"
             valueFrom = {
               secretKeyRef = {
-                name     = module.redis_cache.superuser_creds_secret
+                name     = kubernetes_secret.redis_root_creds.metadata[0].name
                 key      = "username"
                 optional = false
               }
@@ -531,7 +553,7 @@ resource "helm_release" "loki" {
             name = "REDIS_PASSWORD"
             valueFrom = {
               secretKeyRef = {
-                name     = module.redis_cache.superuser_creds_secret
+                name     = kubernetes_secret.redis_root_creds.metadata[0].name
                 key      = "password"
                 optional = false
               }
@@ -569,7 +591,7 @@ resource "helm_release" "loki" {
             name = "REDIS_USERNAME"
             valueFrom = {
               secretKeyRef = {
-                name     = module.redis_cache.superuser_creds_secret
+                name     = kubernetes_secret.redis_root_creds.metadata[0].name
                 key      = "username"
                 optional = false
               }
@@ -579,7 +601,7 @@ resource "helm_release" "loki" {
             name = "REDIS_PASSWORD"
             valueFrom = {
               secretKeyRef = {
-                name     = module.redis_cache.superuser_creds_secret
+                name     = kubernetes_secret.redis_root_creds.metadata[0].name
                 key      = "password"
                 optional = false
               }
@@ -611,7 +633,7 @@ resource "helm_release" "loki" {
             name = "REDIS_USERNAME"
             valueFrom = {
               secretKeyRef = {
-                name     = module.redis_cache.superuser_creds_secret
+                name     = kubernetes_secret.redis_root_creds.metadata[0].name
                 key      = "username"
                 optional = false
               }
@@ -621,7 +643,7 @@ resource "helm_release" "loki" {
             name = "REDIS_PASSWORD"
             valueFrom = {
               secretKeyRef = {
-                name     = module.redis_cache.superuser_creds_secret
+                name     = kubernetes_secret.redis_root_creds.metadata[0].name
                 key      = "password"
                 optional = false
               }
@@ -707,38 +729,6 @@ resource "helm_release" "loki" {
   depends_on = [module.redis_cache]
 }
 
-resource "kubectl_manifest" "service_monitor" {
-  count = var.monitoring_enabled ? 1 : 0
-  yaml_body = yamlencode({
-    apiVersion = "monitoring.coreos.com/v1"
-    kind       = "ServiceMonitor"
-    metadata = {
-      name      = "loki-canary"
-      namespace = local.namespace
-      labels    = module.util_canary.labels
-    }
-    spec = {
-      endpoints = [{
-        honorLabels = true
-        interval    = "60s"
-        port        = "http-metrics"
-        path        = "/metrics"
-        scheme      = "http"
-      }]
-      jobLabel = "loki-canary"
-      namespaceSelector = {
-        matchNames = [local.namespace]
-      }
-      selector = {
-        matchLabels = module.util_canary.match_labels
-      }
-    }
-  })
-  force_conflicts   = true
-  server_side_apply = true
-  depends_on        = [helm_release.loki]
-}
-
 resource "kubernetes_config_map" "dashboard" {
   count = var.monitoring_enabled ? 1 : 0
   metadata {
@@ -746,8 +736,9 @@ resource "kubernetes_config_map" "dashboard" {
     labels = merge(module.util_backend.labels, { "grafana_dashboard" = "1" })
   }
   data = {
-    "loki-metrics.json" = file("${path.module}/dashboards/loki_metrics.json"),
-    "loki-canary.json"  = file("${path.module}/dashboards/loki_canary.json")
+    "loki-metrics.json"     = file("${path.module}/dashboards/loki_metrics.json"),
+    "loki-canary.json"      = file("${path.module}/dashboards/loki_canary.json"),
+    "loki-reliability.json" = file("${path.module}/dashboards/loki_reliability.json")
   }
 }
 
@@ -802,6 +793,16 @@ resource "kubectl_manifest" "vpa_loki_write" {
       labels    = module.util_write.labels
     }
     spec = {
+      // Without a floor VPA dropped the limit to 279Mi, below the 329Mi 30d peak; 400Mi also keeps
+      // the target at the floor so VPA stops evicting pods (each eviction replays the WAL).
+      resourcePolicy = {
+        containerPolicies = [{
+          containerName = "loki"
+          minAllowed = {
+            memory = "400Mi"
+          }
+        }]
+      }
       updatePolicy = {
         updateMode = "Auto"
         evictionRequirements = [{
@@ -908,6 +909,15 @@ resource "kubectl_manifest" "vpa_loki_canary" {
       labels    = module.util_canary.labels
     }
     spec = {
+      // The 30d peak (30Mi) hit the 29Mi limit; a canary OOM fires loki-canary-missing-entries.
+      resourcePolicy = {
+        containerPolicies = [{
+          containerName = "loki-canary"
+          minAllowed = {
+            memory = "32Mi"
+          }
+        }]
+      }
       updatePolicy = {
         updateMode = "Auto"
         evictionRequirements = [{

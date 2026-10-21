@@ -48,7 +48,7 @@ data "pf_kube_labels" "labels" {
 }
 
 module "util_controller" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name                        = "ebs-csi-controller"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -63,7 +63,7 @@ module "util_controller" {
 }
 
 module "constants" {
-  source = "../kube_constants"
+  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
 }
 
 /***************************************
@@ -71,7 +71,7 @@ module "constants" {
 ***************************************/
 
 module "namespace" {
-  source = "../kube_namespace"
+  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
 
   namespace = local.service
 }
@@ -102,7 +102,7 @@ data "aws_iam_policy_document" "extra_permissions" {
 }
 
 module "aws_permissions" {
-  source = "../kube_sa_auth_aws"
+  source = "${var.pf_module_source}kube_sa_auth_aws${var.pf_module_ref}"
 
   service_account           = kubernetes_service_account.ebs_csi.metadata[0].name
   service_account_namespace = kubernetes_service_account.ebs_csi.metadata[0].namespace
@@ -151,7 +151,8 @@ resource "helm_release" "ebs_csi_driver" {
         }
         podLabels = merge(
           {
-            customizationHash = md5(join("", [for filename in sort(fileset(path.module, "kustomize/*")) : filesha256(filename)]))
+            # Skip dotfiles: terragrunt writes a .terragrunt-source-manifest with absolute paths into local sources.
+            customizationHash = md5(join("", [for filename in sort(fileset(path.module, "kustomize/*")) : filesha256(filename) if !startswith(basename(filename), ".")]))
           },
           module.util_controller.labels
         )
@@ -210,6 +211,8 @@ resource "helm_release" "ebs_csi_driver" {
         }
         resources         = local.default_resources
         tolerateAllTaints = false // This prevents nodes from being shutdown in a timely manner
+        // Bottlerocket boots with 2 EBS volumes (xvda OS, xvdb data), but the driver reserves only 1 slot.
+        reservedVolumeAttachments = 2
         tolerations = concat(
           [
             // This is required b/c otherwise storage won't be detached during node shutdown
@@ -311,7 +314,7 @@ resource "helm_release" "ebs_csi_driver" {
 // This improves node startup time performance
 module "image_cache" {
   count  = var.node_image_cached_enabled ? 1 : 0
-  source = "../kube_node_image_cache"
+  source = "${var.pf_module_source}kube_node_image_cache${var.pf_module_ref}"
 
   images = [
     {
