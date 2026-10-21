@@ -32,7 +32,7 @@ data "pf_kube_labels" "labels" {
 }
 
 module "util_controller" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name                        = "pvc-autoresizer"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -47,11 +47,11 @@ module "util_controller" {
 }
 
 module "constants" {
-  source = "../kube_constants"
+  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
 }
 
 module "namespace" {
-  source = "../kube_namespace"
+  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
 
   namespace = "pvc-autoresizer"
 }
@@ -77,8 +77,8 @@ resource "helm_release" "pvc_autoresizer" {
   values = [
     yamlencode({
       image = {
-        repository = "public.ecr.aws/t8f0s7h5/pvc-autoresizer"
-        tag        = var.pvc_autoresizer_version
+        repository = "ghcr.io/topolvm/pvc-autoresizer"
+        reference  = var.pvc_autoresizer_version
       }
       controller = {
         args = {
@@ -93,6 +93,11 @@ resource "helm_release" "pvc_autoresizer" {
             ]))
           }
         )
+
+        # The module creates its own PDB below; chart 0.16+ would add a second one
+        podDisruptionBudget = {
+          enabled = false
+        }
 
         replicas          = var.sla_target >= 2 ? 2 : 1
         priorityClassName = module.constants.cluster_important_priority_class_name
