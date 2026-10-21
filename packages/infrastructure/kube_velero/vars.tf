@@ -55,3 +55,8 @@ variable "wait" {
   type        = bool
   default     = true
 }
+variable "velero_minimum_memory_mb" {
+  description = "The VPA minimum memory for the velero container, in MB"
+  type        = number
+  default     = 1024
+}
