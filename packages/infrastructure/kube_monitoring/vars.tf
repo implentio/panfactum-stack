@@ -299,4 +299,15 @@ variable "controller_nodes_enabled" {
   default     = true
 }
 
+variable "thanos_redis_minimum_memory_mb" {
+  description = "Minimum memory (MB) reserved for each Thanos Redis cache node. Fork-local override: upstream Panfactum hardcodes 1000, which is too small for this cluster's cache working set and caused a store-gateway/query-frontend cache-client OOM crash loop (2026-09-23 incident)."
+  type        = number
+  default     = 2000
+}
+
+variable "thanos_store_gateway_memory_mb" {
+  description = "Static memory request in MiB for the Thanos store gateway, for pods created while VPA admission fails open. Null keeps the module default."
+  type        = number
+  default     = null
+}
 
