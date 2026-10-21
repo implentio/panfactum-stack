@@ -42,7 +42,7 @@ data "aws_eks_cluster" "cluster" {
 }
 
 module "util_controller" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name                        = "cilium-operator"
   instance_type_anti_affinity_required = var.sla_target >= 2 // We are a little more aggressive than typical here, b/c if the operator goes down, there is a significant delay in new node initialization
@@ -62,7 +62,7 @@ module "util_controller" {
 }
 
 module "util_agent" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name               = "cilium-agent"
   burstable_nodes_enabled     = true  // must be capable of running on all nodes
@@ -74,7 +74,7 @@ module "util_agent" {
 }
 
 module "constants" {
-  source = "../kube_constants"
+  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
 }
 
 /***************************************
@@ -82,7 +82,7 @@ module "constants" {
 ***************************************/
 
 module "namespace" {
-  source = "../kube_namespace"
+  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
 
   namespace = local.name
 }
@@ -108,14 +108,16 @@ data "aws_iam_policy_document" "cilium" {
       "ec2:ModifyNetworkInterfaceAttribute",
       "ec2:AssignPrivateIpAddresses",
       "ec2:CreateTags",
-      "ec2:DescribeTags"
+      "ec2:DescribeTags",
+      // Cilium 1.18+ operator needs this in ENI mode
+      "ec2:DescribeRouteTables"
     ]
     resources = ["*"]
   }
 }
 
 module "aws_permissions" {
-  source = "../kube_sa_auth_aws"
+  source = "${var.pf_module_source}kube_sa_auth_aws${var.pf_module_ref}"
 
 
   annotate_service_account  = false // The helm chart creates the service account
@@ -171,6 +173,8 @@ resource "helm_release" "cilium" {
         mode    = "eni"
         iamRole = module.aws_permissions.role_arn
       }
+      // 1.18 flips the ENI-mode default to false; keep the masquerade behavior 1.17 had
+      enableIPv4Masquerade       = true
       egressMasqueradeInterfaces = "eth0"
       routingMode                = "native"
 
@@ -259,6 +263,11 @@ resource "helm_release" "cilium" {
           // This is required b/c otherwise networking will break during node shutdown
           {
             key      = "karpenter.sh/disruption"
+            operator = "Exists"
+            effect   = "NoSchedule"
+          },
+          {
+            key      = "karpenter.sh/disrupted" // Karpenter docs are wrong; this needs to be tolerated as well
             operator = "Exists"
             effect   = "NoSchedule"
           },
