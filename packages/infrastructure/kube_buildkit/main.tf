@@ -36,7 +36,7 @@ data "pf_kube_labels" "labels" {
 data "pf_metadata" "metadata" {}
 
 module "constants" {
-  source = "../kube_constants"
+  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
 }
 
 data "aws_region" "region" {}
@@ -47,7 +47,7 @@ data "aws_caller_identity" "current" {}
 ***************************************/
 
 module "namespace" {
-  source = "../kube_namespace"
+  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
 
   namespace = local.name
 }
@@ -62,7 +62,7 @@ resource "random_id" "cache_bucket" {
 }
 
 module "cache_bucket" {
-  source = "../aws_s3_private_bucket"
+  source = "${var.pf_module_source}aws_s3_private_bucket${var.pf_module_ref}"
 
   bucket_name        = random_id.cache_bucket.hex
   description        = "Used for buildkit layer caches"
@@ -100,7 +100,7 @@ data "aws_iam_policy_document" "buildkit" {
 
 module "aws_permissions" {
   for_each = local.arch
-  source   = "../kube_sa_auth_aws"
+  source   = "${var.pf_module_source}kube_sa_auth_aws${var.pf_module_ref}"
 
   service_account           = module.buildkit[each.key].service_account_name
   service_account_namespace = local.namespace
@@ -113,7 +113,7 @@ module "aws_permissions" {
 ***************************************/
 
 module "buildkit" {
-  source   = "../kube_stateful_set"
+  source   = "${var.pf_module_source}kube_stateful_set${var.pf_module_ref}"
   for_each = local.arch
 
   name                  = "${local.name}-${each.key}"
@@ -172,8 +172,9 @@ module "buildkit" {
         "--addr", "tcp://0.0.0.0:${local.port}",
         "--addr", "unix:///run/user/1000/buildkit/buildkitd.sock",
         "--oci-worker-no-process-sandbox",
-        # GC is enabled by default so we need to increase the limits in order to keep a meaningful cache
-        "--oci-worker-gc-keepstorage", tostring(var.max_storage_gb * 1000)
+        # Keep the GC limit below the initial volume size: EBS allows one resize per 6h, so the cache
+        # outgrew the disk while pvc-autoresizer waited (VolumeModificationRateExceeded).
+        "--oci-worker-gc-keepstorage", tostring(floor(var.initial_storage_gb * 0.75) * 1000)
       ]
       uid = 1000
       linux_capabilities = [
@@ -184,9 +185,9 @@ module "buildkit" {
       seccomp_profile_type   = "Unconfined"
       liveness_probe_type    = "exec"
       liveness_probe_command = ["buildctl", "debug", "workers"]
-      minimum_cpu            = var.cpu_millicores
-      maximum_cpu            = var.cpu_millicores
-      minimum_memory         = var.memory_mb
+      # No maximum_cpu: upstream caps CPU at the request, which throttles buildkitd at 2 cores on idle nodes.
+      minimum_cpu    = var.cpu_millicores
+      minimum_memory = var.memory_mb
       ports = {
         buildkitd = {
           port = local.port
@@ -344,7 +345,7 @@ resource "kubernetes_role_binding" "scale_to_zero" {
 }
 
 module "scale_to_zero" {
-  source = "../kube_cron_job"
+  source = "${var.pf_module_source}kube_cron_job${var.pf_module_ref}"
 
   name                        = "scale-to-zero"
   namespace                   = local.namespace
@@ -421,7 +422,7 @@ resource "kubernetes_role_binding" "cache_clear" {
 }
 
 module "cache_clear" {
-  source = "../kube_cron_job"
+  source = "${var.pf_module_source}kube_cron_job${var.pf_module_ref}"
 
   name                        = "cache-clear"
   namespace                   = local.namespace
