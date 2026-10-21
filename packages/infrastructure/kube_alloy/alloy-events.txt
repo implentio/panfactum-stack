@@ -1,0 +1,28 @@
+logging {
+  level = "${LOG_LEVEL}"
+  format = "json"
+}
+
+// EKS keeps events for ~1h; shipping them to Loki keeps them for Loki's retention period
+loki.source.kubernetes_events "cluster" {
+  job_name   = "kubernetes-events"
+  log_format = "logfmt"
+  forward_to = [loki.process.events.receiver]
+}
+
+// New alloy-events pods re-list events already shipped; Loki rejects entries more than 1h behind
+// the stream's newest entry, so drop anything older than 55m to leave headroom
+loki.process "events" {
+  stage.drop {
+    older_than          = "55m"
+    drop_counter_reason = "too old"
+  }
+
+  forward_to = [loki.write.loki.receiver]
+}
+
+loki.write "loki" {
+  endpoint {
+    url = "http://loki-write.logging.svc.cluster.local:3100/loki/api/v1/push"
+  }
+}

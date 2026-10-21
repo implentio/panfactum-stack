@@ -33,7 +33,7 @@ data "pf_kube_labels" "labels" {
 }
 
 module "util" {
-  source = "../kube_workload_utility"
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
 
   workload_name            = "alloy"
   burstable_nodes_enabled  = true
@@ -42,7 +42,7 @@ module "util" {
 }
 
 module "constants" {
-  source = "../kube_constants"
+  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
 }
 
 /***************************************
@@ -50,7 +50,7 @@ module "constants" {
 ***************************************/
 
 module "namespace" {
-  source = "../kube_namespace"
+  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
 
   namespace = local.name
 }
@@ -107,10 +107,10 @@ resource "helm_release" "alloy" {
         resources = {
           requests = {
             cpu    = "100m"
-            memory = "150Mi"
+            memory = "200Mi"
           }
           limits = {
-            memory = "${floor(150 * 1.3)}Mi"
+            memory = "${floor(200 * 1.3)}Mi"
           }
         }
       }
@@ -125,6 +125,101 @@ resource "helm_release" "alloy" {
             maxSurge       = 0
           }
         }
+      }
+      configReloader = {
+        resources = {
+          requests = {
+            cpu    = "50m"
+            memory = "20Mi"
+          }
+          limits = {
+            memory = "${floor(20 * 1.3)}Mi"
+          }
+        }
+      }
+      serviceMonitor = {
+        enabled  = var.monitoring_enabled
+        interval = "60s"
+      }
+    })
+  ]
+
+  timeout = 300
+}
+
+/***************************************
+* Kubernetes Events
+***************************************/
+
+module "util_events" {
+  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+
+  workload_name            = "alloy-events"
+  burstable_nodes_enabled  = true
+  controller_nodes_enabled = true
+  extra_labels             = data.pf_kube_labels.labels.labels
+}
+
+resource "kubernetes_config_map" "alloy_events" {
+  metadata {
+    name      = "alloy-events-config"
+    namespace = local.namespace
+    labels    = module.util_events.labels
+  }
+  data = {
+    "alloy.config" = templatefile("${path.module}/alloy-events.txt", {
+      LOG_LEVEL = var.log_level
+    })
+  }
+}
+
+// loki.source.kubernetes_events does not support clustering, so a single replica
+// avoids every DaemonSet pod shipping a duplicate of each event
+resource "helm_release" "alloy_events" {
+  namespace       = local.namespace
+  name            = "alloy-events"
+  repository      = "https://grafana.github.io/helm-charts"
+  chart           = "alloy"
+  version         = var.alloy_chart_version
+  recreate_pods   = false
+  atomic          = var.wait
+  cleanup_on_fail = var.wait
+  wait            = var.wait
+  force_update    = true
+  wait_for_jobs   = true
+  max_history     = 5
+
+  values = [
+    yamlencode({
+      fullnameOverride = "alloy-events"
+      crds = {
+        create = false
+      }
+      alloy = {
+        clustering = {
+          enabled = false
+        }
+        configMap = {
+          create = false
+          name   = kubernetes_config_map.alloy_events.metadata[0].name
+          key    = "alloy.config"
+        }
+        // No VPA; the 30d peak (105Mi) was 81% of the old 130Mi limit and each start re-lists events
+        resources = {
+          requests = {
+            cpu    = "50m"
+            memory = "150Mi"
+          }
+          limits = {
+            memory = "${floor(150 * 1.3)}Mi"
+          }
+        }
+      }
+      controller = {
+        type        = "deployment"
+        replicas    = 1
+        tolerations = module.util_events.tolerations
+        podLabels   = module.util_events.labels
       }
       configReloader = {
         resources = {
@@ -165,8 +260,9 @@ resource "kubectl_manifest" "vpa_alloy" {
       resourcePolicy = {
         containerPolicies = [{
           containerName = "alloy"
+          // The 30d peak (174Mi) was 89% of the 195Mi limit; Alloy has no WAL, so an OOM drops buffered logs
           minAllowed = {
-            memory = "150Mi"
+            memory = "200Mi"
           }
         }]
       }
@@ -195,7 +291,7 @@ resource "kubectl_manifest" "vpa_alloy" {
 
 module "image_cache" {
   count  = var.node_image_cached_enabled ? 1 : 0
-  source = "../kube_node_image_cache"
+  source = "${var.pf_module_source}kube_node_image_cache${var.pf_module_ref}"
 
   images = [
     {
