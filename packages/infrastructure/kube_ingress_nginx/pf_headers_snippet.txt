@@ -1,0 +1,147 @@
+# Replaces the Panfactum Lua plugin (removed in controller v1.12). kube_ingress sets the $pf_* variables
+# per location; location-snippet applies $pf_out_* with more_set_headers.
+# A $pf_out_* value that falls back to the current header keeps it unchanged, as the plugin did.
+
+map $upstream_status $pf_upstream_ok {
+  volatile;
+  ""      0;
+  ~^3     0;
+  default 1;
+}
+
+map "$pf_upstream_ok:$sent_http_content_type" $pf_resp {
+  volatile;
+  ~^0:      none;
+  "1:"      none;
+  ~^1:.*html html;
+  default   other;
+}
+
+map "$pf_resp:$pf_csp_enabled:$pf_csp_override:$sent_http_content_security_policy" $pf_out_csp {
+  volatile;
+  "html:true:false:"  $pf_csp;
+  "other:true:false:" $pf_csp_non_html;
+  ~^html:true:true:   $pf_csp;
+  ~^other:true:true:  $pf_csp_non_html;
+  default             $sent_http_content_security_policy;
+}
+
+map "$pf_resp:$pf_cross_origin_isolation_enabled" $pf_out_coep {
+  volatile;
+  "html:true" $pf_cross_origin_embedder_policy;
+  default     $sent_http_cross_origin_embedder_policy;
+}
+
+map "$pf_resp:$pf_cross_origin_isolation_enabled" $pf_out_coop {
+  volatile;
+  "html:true" $pf_cross_origin_opener_policy;
+  default     $sent_http_cross_origin_opener_policy;
+}
+
+map "$pf_resp:$pf_permissions_policy_enabled:$pf_permissions_policy_override:$sent_http_permissions_policy" $pf_out_permissions_policy {
+  volatile;
+  "html:true:false:" $pf_permissions_policy;
+  ~^html:true:true:  $pf_permissions_policy;
+  default            $sent_http_permissions_policy;
+}
+
+map $pf_resp $pf_out_x_xss_protection {
+  volatile;
+  html    $pf_x_xss_protection;
+  default $sent_http_x_xss_protection;
+}
+
+map $pf_resp $pf_out_x_frame_options {
+  volatile;
+  html    $pf_x_frame_options;
+  default $sent_http_x_frame_options;
+}
+
+map $pf_resp $pf_out_referrer_policy {
+  volatile;
+  html    $pf_referrer_policy;
+  default $sent_http_referrer_policy;
+}
+
+# $pf_cors_origin_ok is set per location by location-snippet
+map "$pf_cors_enabled:$pf_cors_origin_ok" $pf_cors_on {
+  volatile;
+  "true:1" 1;
+  default  0;
+}
+
+map $pf_cors_on $pf_out_cors_allow_origin {
+  volatile;
+  1       $http_origin;
+  default $sent_http_access_control_allow_origin;
+}
+
+map $pf_cors_on $pf_out_cors_allow_methods {
+  volatile;
+  1       $pf_cors_allowed_methods;
+  default $sent_http_access_control_allow_methods;
+}
+
+map $pf_cors_on $pf_out_cors_allow_headers {
+  volatile;
+  1       $pf_cors_allowed_headers;
+  default $sent_http_access_control_allow_headers;
+}
+
+map $pf_cors_on $pf_out_cors_expose_headers {
+  volatile;
+  1       $pf_cors_exposed_headers;
+  default $sent_http_access_control_expose_headers;
+}
+
+map $pf_cors_on $pf_out_cors_max_age {
+  volatile;
+  1       $pf_cors_max_age_seconds;
+  default $sent_http_access_control_max_age;
+}
+
+map $pf_cors_on $pf_out_cors_allow_credentials {
+  volatile;
+  1       $pf_cors_allow_credentials;
+  default $sent_http_access_control_allow_credentials;
+}
+
+map "$pf_cors_on:$sent_http_vary" $pf_out_vary {
+  volatile;
+  "1:"                Origin;
+  ~^1:.*Origin        $sent_http_vary;
+  ~^1:(?<pf_vary>.+)$ "$pf_vary, Origin";
+  default             $sent_http_vary;
+}
+
+# Declares every $pf_* variable so nginx loads when no ingress sets them
+server {
+  listen 127.0.0.1:18081;
+
+  set $pf_csp_enabled "";
+  set $pf_csp_override "";
+  set $pf_csp_non_html "";
+  set $pf_csp "";
+  set $pf_cross_origin_isolation_enabled "";
+  set $pf_cross_origin_embedder_policy "";
+  set $pf_cross_origin_opener_policy "";
+  set $pf_permissions_policy_enabled "";
+  set $pf_permissions_policy_override "";
+  set $pf_permissions_policy "";
+  set $pf_x_xss_protection "";
+  set $pf_x_frame_options "";
+  set $pf_referrer_policy "";
+  set $pf_cors_enabled "";
+  set $pf_cors_allowed_methods "";
+  set $pf_cors_allowed_headers "";
+  set $pf_cors_exposed_headers "";
+  set $pf_cors_max_age_seconds "";
+  set $pf_cors_allow_credentials "";
+  set $pf_cors_origin_ok "";
+  set $pf_cors_origin_regex "";
+  set $pf_cors_preflight "";
+
+  location / {
+    return 404;
+  }
+}

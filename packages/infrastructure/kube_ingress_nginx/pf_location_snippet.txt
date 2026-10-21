@@ -1,0 +1,31 @@
+# Applies the headers the Lua plugin set. Runs after each ingress's configuration-snippet, so the
+# $pf_* variables from kube_ingress are already set.
+set_by_lua_block $pf_cors_origin_ok {
+  local origin = ngx.var.http_origin
+  local regex = ngx.var.pf_cors_origin_regex
+  if ngx.var.pf_cors_enabled == "true" and origin and regex and regex ~= "" and ngx.re.match(origin, "^" .. regex .. "$", "jo") then
+    return "1"
+  end
+  return "0"
+}
+more_set_headers "Content-Security-Policy: $pf_out_csp";
+more_set_headers "Cross-Origin-Embedder-Policy: $pf_out_coep";
+more_set_headers "Cross-Origin-Opener-Policy: $pf_out_coop";
+more_set_headers "Permissions-Policy: $pf_out_permissions_policy";
+more_set_headers "X-XSS-Protection: $pf_out_x_xss_protection";
+more_set_headers "X-Frame-Options: $pf_out_x_frame_options";
+more_set_headers "Referrer-Policy: $pf_out_referrer_policy";
+more_set_headers "Access-Control-Allow-Origin: $pf_out_cors_allow_origin";
+more_set_headers "Access-Control-Allow-Methods: $pf_out_cors_allow_methods";
+more_set_headers "Access-Control-Allow-Headers: $pf_out_cors_allow_headers";
+more_set_headers "Access-Control-Expose-Headers: $pf_out_cors_expose_headers";
+more_set_headers "Access-Control-Max-Age: $pf_out_cors_max_age";
+more_set_headers "Access-Control-Allow-Credentials: $pf_out_cors_allow_credentials";
+more_set_headers "Vary: $pf_out_vary";
+
+# https only: plain http falls through to the controller's https redirect, which ran before the plugin.
+# The if block has no more_set_headers of its own, so it inherits every header above.
+set $pf_cors_preflight "$request_method:$pf_cors_origin_ok:$scheme";
+if ($pf_cors_preflight = "OPTIONS:1:https") {
+  return 204;
+}
