@@ -304,11 +304,11 @@ data "pf_kube_labels" "labels" {
 data "pf_metadata" "metadata" {}
 
 module "constants" {
-  source = "../kube_constants"
+  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
 }
 
 module "node_settings_burstable" {
-  source = "../kube_node_settings"
+  source = "${var.pf_module_source}kube_node_settings${var.pf_module_ref}"
 
   cluster_name           = local.cluster_name
   cluster_endpoint       = var.cluster_endpoint
@@ -317,7 +317,7 @@ module "node_settings_burstable" {
 }
 
 module "node_settings_spot" {
-  source = "../kube_node_settings"
+  source = "${var.pf_module_source}kube_node_settings${var.pf_module_ref}"
 
   cluster_name           = local.cluster_name
   cluster_endpoint       = var.cluster_endpoint
@@ -327,7 +327,7 @@ module "node_settings_spot" {
 }
 
 module "node_settings" {
-  source = "../kube_node_settings"
+  source = "${var.pf_module_source}kube_node_settings${var.pf_module_ref}"
 
   cluster_name           = local.cluster_name
   cluster_endpoint       = var.cluster_endpoint
@@ -532,6 +532,8 @@ resource "kubectl_manifest" "burstable_node_pool" {
 }
 
 resource "kubectl_manifest" "wf_burstable_node_pool" {
+  count = var.wf_node_pools_enabled ? 1 : 0
+
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
@@ -626,6 +628,8 @@ resource "kubectl_manifest" "burstable_arm_node_pool" {
 }
 
 resource "kubectl_manifest" "wf_burstable_arm_node_pool" {
+  count = var.wf_node_pools_enabled ? 1 : 0
+
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
@@ -720,6 +724,8 @@ resource "kubectl_manifest" "spot_node_pool" {
 }
 
 resource "kubectl_manifest" "wf_spot_node_pool" {
+  count = var.wf_node_pools_enabled ? 1 : 0
+
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
@@ -813,6 +819,8 @@ resource "kubectl_manifest" "spot_arm_node_pool" {
 }
 
 resource "kubectl_manifest" "wf_spot_arm_node_pool" {
+  count = var.wf_node_pools_enabled ? 1 : 0
+
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
@@ -907,6 +915,8 @@ resource "kubectl_manifest" "on_demand_arm_node_pool" {
 }
 
 resource "kubectl_manifest" "wf_on_demand_arm_node_pool" {
+  count = var.wf_node_pools_enabled ? 1 : 0
+
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
@@ -997,6 +1007,8 @@ resource "kubectl_manifest" "on_demand_node_pool" {
 }
 
 resource "kubectl_manifest" "wf_on_demand_node_pool" {
+  count = var.wf_node_pools_enabled ? 1 : 0
+
   yaml_body = yamlencode({
     apiVersion = "karpenter.sh/v1"
     kind       = "NodePool"
@@ -1039,3 +1051,33 @@ resource "kubectl_manifest" "wf_on_demand_node_pool" {
   }
 }
 
+
+moved {
+  from = kubectl_manifest.wf_burstable_node_pool
+  to   = kubectl_manifest.wf_burstable_node_pool[0]
+}
+
+moved {
+  from = kubectl_manifest.wf_burstable_arm_node_pool
+  to   = kubectl_manifest.wf_burstable_arm_node_pool[0]
+}
+
+moved {
+  from = kubectl_manifest.wf_spot_node_pool
+  to   = kubectl_manifest.wf_spot_node_pool[0]
+}
+
+moved {
+  from = kubectl_manifest.wf_spot_arm_node_pool
+  to   = kubectl_manifest.wf_spot_arm_node_pool[0]
+}
+
+moved {
+  from = kubectl_manifest.wf_on_demand_arm_node_pool
+  to   = kubectl_manifest.wf_on_demand_arm_node_pool[0]
+}
+
+moved {
+  from = kubectl_manifest.wf_on_demand_node_pool
+  to   = kubectl_manifest.wf_on_demand_node_pool[0]
+}
