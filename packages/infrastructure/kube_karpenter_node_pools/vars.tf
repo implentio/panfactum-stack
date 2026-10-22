@@ -92,3 +92,9 @@ variable "default_termination_grace_period" {
   type        = string
   default     = "1h0m0s"
 }
+
+variable "wf_node_pools_enabled" {
+  description = "Whether to create the wf_* node pools (an unused attempt at warm pools for Argo)."
+  type        = bool
+  default     = true
+}
