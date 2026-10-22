@@ -32,7 +32,7 @@ data "pf_kube_labels" "labels" {
 }
 
 module "util_controller" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "pvc-autoresizer"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -47,11 +47,11 @@ module "util_controller" {
 }
 
 module "constants" {
-  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
+  source = "../kube_constants"
 }
 
 module "namespace" {
-  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
+  source = "../kube_namespace"
 
   namespace = "pvc-autoresizer"
 }

@@ -35,7 +35,7 @@ data "pf_kube_labels" "labels" {
 }
 
 module "util_admission_controller" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "vpa-admission-controller"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -54,7 +54,7 @@ module "util_admission_controller" {
 }
 
 module "util_recommender" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "vpa-recommender"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -73,7 +73,7 @@ module "util_recommender" {
 }
 
 module "util_updater" {
-  source = "${var.pf_module_source}kube_workload_utility${var.pf_module_ref}"
+  source = "../kube_workload_utility"
 
   workload_name                        = "vpa-updater"
   burstable_nodes_enabled              = var.burstable_nodes_enabled
@@ -92,7 +92,7 @@ module "util_updater" {
 }
 
 module "constants" {
-  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
+  source = "../kube_constants"
 }
 
 # ################################################################################
@@ -100,7 +100,7 @@ module "constants" {
 # ################################################################################
 
 module "namespace" {
-  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
+  source = "../kube_namespace"
 
   namespace = local.name
 }
@@ -110,7 +110,7 @@ module "namespace" {
 # ################################################################################
 
 module "webhook_cert" {
-  source = "${var.pf_module_source}kube_internal_cert${var.pf_module_ref}"
+  source = "../kube_internal_cert"
 
   service_names = ["vpa-webhook"]
   secret_name   = "vpa-webhook-certs"

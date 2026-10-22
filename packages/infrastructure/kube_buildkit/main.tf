@@ -36,7 +36,7 @@ data "pf_kube_labels" "labels" {
 data "pf_metadata" "metadata" {}
 
 module "constants" {
-  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
+  source = "../kube_constants"
 }
 
 data "aws_region" "region" {}
@@ -47,7 +47,7 @@ data "aws_caller_identity" "current" {}
 ***************************************/
 
 module "namespace" {
-  source = "${var.pf_module_source}kube_namespace${var.pf_module_ref}"
+  source = "../kube_namespace"
 
   namespace = local.name
 }
@@ -62,7 +62,7 @@ resource "random_id" "cache_bucket" {
 }
 
 module "cache_bucket" {
-  source = "${var.pf_module_source}aws_s3_private_bucket${var.pf_module_ref}"
+  source = "../aws_s3_private_bucket"
 
   bucket_name        = random_id.cache_bucket.hex
   description        = "Used for buildkit layer caches"
@@ -100,7 +100,7 @@ data "aws_iam_policy_document" "buildkit" {
 
 module "aws_permissions" {
   for_each = local.arch
-  source   = "${var.pf_module_source}kube_sa_auth_aws${var.pf_module_ref}"
+  source   = "../kube_sa_auth_aws"
 
   service_account           = module.buildkit[each.key].service_account_name
   service_account_namespace = local.namespace
@@ -113,7 +113,7 @@ module "aws_permissions" {
 ***************************************/
 
 module "buildkit" {
-  source   = "${var.pf_module_source}kube_stateful_set${var.pf_module_ref}"
+  source   = "../kube_stateful_set"
   for_each = local.arch
 
   name                  = "${local.name}-${each.key}"
@@ -345,7 +345,7 @@ resource "kubernetes_role_binding" "scale_to_zero" {
 }
 
 module "scale_to_zero" {
-  source = "${var.pf_module_source}kube_cron_job${var.pf_module_ref}"
+  source = "../kube_cron_job"
 
   name                        = "scale-to-zero"
   namespace                   = local.namespace
@@ -422,7 +422,7 @@ resource "kubernetes_role_binding" "cache_clear" {
 }
 
 module "cache_clear" {
-  source = "${var.pf_module_source}kube_cron_job${var.pf_module_ref}"
+  source = "../kube_cron_job"
 
   name                        = "cache-clear"
   namespace                   = local.namespace

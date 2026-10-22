@@ -304,11 +304,11 @@ data "pf_kube_labels" "labels" {
 data "pf_metadata" "metadata" {}
 
 module "constants" {
-  source = "${var.pf_module_source}kube_constants${var.pf_module_ref}"
+  source = "../kube_constants"
 }
 
 module "node_settings_burstable" {
-  source = "${var.pf_module_source}kube_node_settings${var.pf_module_ref}"
+  source = "../kube_node_settings"
 
   cluster_name           = local.cluster_name
   cluster_endpoint       = var.cluster_endpoint
@@ -317,7 +317,7 @@ module "node_settings_burstable" {
 }
 
 module "node_settings_spot" {
-  source = "${var.pf_module_source}kube_node_settings${var.pf_module_ref}"
+  source = "../kube_node_settings"
 
   cluster_name           = local.cluster_name
   cluster_endpoint       = var.cluster_endpoint
@@ -327,7 +327,7 @@ module "node_settings_spot" {
 }
 
 module "node_settings" {
-  source = "${var.pf_module_source}kube_node_settings${var.pf_module_ref}"
+  source = "../kube_node_settings"
 
   cluster_name           = local.cluster_name
   cluster_endpoint       = var.cluster_endpoint
