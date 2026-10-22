@@ -38,6 +38,42 @@ locals {
   namespace = module.namespace.namespace
 
   configmap_name = "argo-controller"
+
+  persistence = {
+    archive           = true
+    archiveTTL        = var.workflow_archive_ttl
+    nodeStatusOffLoad = true # Helps to circumvent etcd limits on workload sizes
+    # A pg-af8b primary change (about six a day) kills every session, and Argo's pgx v4 driver
+    # reuses a dead pooled connection without a check: expire connections fast, keep few idle.
+    # Set all three: once the block exists Argo applies all of them (an omitted one becomes 0).
+    connectionPool = {
+      maxIdleConns    = 2
+      maxOpenConns    = 0
+      connMaxLifetime = "30s"
+    }
+    postgresql = {
+      host      = module.database.pooler_rw_service_name
+      port      = module.database.pooler_rw_service_port
+      database  = module.database.database
+      tableName = "argo_workflows"
+      ssl       = true
+      sslMode   = "require"
+      userNameSecret = {
+        name = kubernetes_secret.db_creds.metadata[0].name
+        key  = "username"
+      }
+      passwordSecret = {
+        name = kubernetes_secret.db_creds.metadata[0].name
+        key  = "password"
+      }
+    }
+  }
+
+  # argo-server opens its archive pool only at startup, and force_update reverts the Reloader
+  # restart a config change starts, so the pod templates carry the block's hash themselves.
+  persistence_annotations = {
+    "checksum/persistence" = sha1(jsonencode(local.persistence))
+  }
 }
 
 data "aws_region" "current" {}
@@ -319,6 +355,20 @@ resource "kubernetes_secret" "sso_info" {
   }
 }
 
+# Vault dynamic creds renew on a lease, and each renewal made Reloader restart the controller (resetting @every schedules).
+# The root password changes only when an apply runs after the 7-day time_rotating in kube_pg_cluster.
+resource "kubernetes_secret" "db_creds" {
+  metadata {
+    name      = "argo-pg-root-creds"
+    namespace = local.namespace
+    labels    = module.util_controller.labels
+  }
+  data = {
+    username = module.database.root_username
+    password = module.database.root_password
+  }
+}
+
 resource "helm_release" "argo" {
   namespace       = local.namespace
   name            = "argo"
@@ -367,31 +417,11 @@ resource "helm_release" "argo" {
           create = true
           name   = local.configmap_name
         }
-        persistence = {
-          archive           = true
-          archiveTTL        = var.workflow_archive_ttl
-          nodeStatusOffLoad = true # Helps to circumvent etcd limits on workload sizes
-          postgresql = {
-            host      = module.database.pooler_rw_service_name
-            port      = module.database.pooler_rw_service_port
-            database  = module.database.database
-            tableName = "argo_workflows"
-            ssl       = true
-            sslMode   = "require"
-            userNameSecret = {
-              name = module.database.superuser_creds_secret
-              key  = "username"
-            }
-            passwordSecret = {
-              name = module.database.superuser_creds_secret
-              key  = "password"
-            }
-          }
-        }
+        persistence = local.persistence
 
         deploymentAnnotations = {
           "configmap.reloader.stakater.com/reload" = local.configmap_name
-          "secret.reloader.stakater.com/reload"    = "${kubernetes_secret.sso_info.metadata[0].name},${module.database.superuser_creds_secret}"
+          "secret.reloader.stakater.com/reload"    = "${kubernetes_secret.sso_info.metadata[0].name},${kubernetes_secret.db_creds.metadata[0].name}"
         }
 
         logging = {
@@ -399,6 +429,7 @@ resource "helm_release" "argo" {
           level  = var.log_level
         }
 
+        podAnnotations = local.persistence_annotations
         podLabels = merge(
           module.util_controller.labels,
           {
@@ -415,11 +446,11 @@ resource "helm_release" "argo" {
         }
         resources = {
           requests = {
-            memory = "50Mi"
+            memory = "${var.controller_memory_mb}Mi"
             cpu    = "100m"
           }
           limits = {
-            memory = "${floor(50 * 1.3)}Mi"
+            memory = "${floor(var.controller_memory_mb * 1.3)}Mi"
           }
         }
       }
@@ -431,7 +462,8 @@ resource "helm_release" "argo" {
             cpu    = "10m"
           }
           limits = {
-            memory = "70Mi"
+            # Since Argo v3.7.10 the init container peaks above 70Mi (59 OOMKills in prod 2026-10-14..16).
+            memory = "256Mi"
           }
         }
       }
@@ -462,13 +494,14 @@ resource "helm_release" "argo" {
         }
         deploymentAnnotations = {
           "configmap.reloader.stakater.com/reload" = local.configmap_name
-          "secret.reloader.stakater.com/reload"    = "${kubernetes_secret.sso_info.metadata[0].name},${module.database.superuser_creds_secret}"
+          "secret.reloader.stakater.com/reload"    = "${kubernetes_secret.sso_info.metadata[0].name},${kubernetes_secret.db_creds.metadata[0].name}"
         }
         logging = {
           format = "json"
           level  = var.log_level
         }
-        podLabels = module.util_server.labels
+        podAnnotations = local.persistence_annotations
+        podLabels      = module.util_server.labels
 
         replicas                  = 2
         priorityClassName         = module.constants.cluster_important_priority_class_name
@@ -480,11 +513,11 @@ resource "helm_release" "argo" {
         }
         resources = {
           requests = {
-            memory = "50Mi"
+            memory = "${var.server_memory_mb}Mi"
             cpu    = "100m"
           }
           limits = {
-            memory = "${floor(50 * 1.3)}Mi"
+            memory = "${floor(var.server_memory_mb * 1.3)}Mi"
           }
         }
 
@@ -492,7 +525,8 @@ resource "helm_release" "argo" {
     })
   ]
 
-  depends_on = [module.database]
+  # VPAs first: a pod the upgrade rolls is sized at admission, and prod runs no vpa-updater to fix it later.
+  depends_on = [module.database, kubectl_manifest.vpa_controller, kubectl_manifest.vpa_server]
 }
 
 module "ingress" {
@@ -532,7 +566,7 @@ resource "kubectl_manifest" "vpa_controller" {
         containerPolicies = [{
           containerName = "controller"
           minAllowed = {
-            memory = "50Mi"
+            memory = "${var.controller_memory_mb}Mi"
           }
         }]
       }
@@ -552,7 +586,6 @@ resource "kubectl_manifest" "vpa_controller" {
   })
   force_conflicts   = true
   server_side_apply = true
-  depends_on        = [helm_release.argo]
 }
 
 resource "kubectl_manifest" "pdb_controller" {
@@ -592,7 +625,7 @@ resource "kubectl_manifest" "vpa_server" {
         containerPolicies = [{
           containerName = "argo-server"
           minAllowed = {
-            memory = "50Mi"
+            memory = "${var.server_memory_mb}Mi"
           }
         }]
       }
@@ -612,7 +645,6 @@ resource "kubectl_manifest" "vpa_server" {
   })
   force_conflicts   = true
   server_side_apply = true
-  depends_on        = [helm_release.argo]
 }
 
 resource "kubectl_manifest" "pdb_server" {
@@ -683,8 +715,9 @@ resource "helm_release" "argo_events" {
         podLabels = merge(
           module.util_events_controller.labels,
           {
+            # Skip dotfiles: terragrunt writes a .terragrunt-source-manifest with absolute paths into local sources.
             customizationHash = md5(join("", [
-              for filename in sort(fileset(path.module, "kustomize_events/*")) : filesha256(filename)
+              for filename in sort(fileset(path.module, "kustomize_events/*")) : filesha256(filename) if !startswith(basename(filename), ".")
             ]))
           }
         )
@@ -715,8 +748,9 @@ resource "helm_release" "argo_events" {
         podLabels = merge(
           module.util_webhook.labels,
           {
+            # Skip dotfiles: terragrunt writes a .terragrunt-source-manifest with absolute paths into local sources.
             customizationHash = md5(join("", [
-              for filename in sort(fileset(path.module, "kustomize_events/*")) : filesha256(filename)
+              for filename in sort(fileset(path.module, "kustomize_events/*")) : filesha256(filename) if !startswith(basename(filename), ".")
             ]))
           }
         )
