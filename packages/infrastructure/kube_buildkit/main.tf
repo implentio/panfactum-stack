@@ -172,8 +172,9 @@ module "buildkit" {
         "--addr", "tcp://0.0.0.0:${local.port}",
         "--addr", "unix:///run/user/1000/buildkit/buildkitd.sock",
         "--oci-worker-no-process-sandbox",
-        # GC is enabled by default so we need to increase the limits in order to keep a meaningful cache
-        "--oci-worker-gc-keepstorage", tostring(var.max_storage_gb * 1000)
+        # Keep the GC limit below the initial volume size: EBS allows one resize per 6h, so the cache
+        # outgrew the disk while pvc-autoresizer waited (VolumeModificationRateExceeded).
+        "--oci-worker-gc-keepstorage", tostring(floor(var.initial_storage_gb * 0.75) * 1000)
       ]
       uid = 1000
       linux_capabilities = [
@@ -184,9 +185,9 @@ module "buildkit" {
       seccomp_profile_type   = "Unconfined"
       liveness_probe_type    = "exec"
       liveness_probe_command = ["buildctl", "debug", "workers"]
-      minimum_cpu            = var.cpu_millicores
-      maximum_cpu            = var.cpu_millicores
-      minimum_memory         = var.memory_mb
+      # No maximum_cpu: upstream caps CPU at the request, which throttles buildkitd at 2 cores on idle nodes.
+      minimum_cpu    = var.cpu_millicores
+      minimum_memory = var.memory_mb
       ports = {
         buildkitd = {
           port = local.port
