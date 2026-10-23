@@ -571,11 +571,8 @@ resource "kubectl_manifest" "vpa_controller" {
         }]
       }
       updatePolicy = {
-        updateMode = "Auto"
-        evictionRequirements = [{
-          resources         = ["cpu", "memory"]
-          changeRequirement = "TargetHigherThanRequests"
-        }]
+        # A restart resets the in-memory sync locks, which handed a held project lock to a second run.
+        updateMode = "Initial"
       }
       targetRef = {
         apiVersion = "apps/v1"
