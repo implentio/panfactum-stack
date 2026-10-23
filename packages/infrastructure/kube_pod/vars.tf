@@ -35,6 +35,7 @@ variable "containers" {
     maximum_cpu             = optional(number, null)           # The maximum amount of cpu to allow (in millicores)
     run_as_root             = optional(bool, false)            # Whether to run the container as root
     uid                     = optional(number, 1000)           # user to use when running the container if not root
+    seccomp_profile_type    = optional(string, null)           # Seccomp profile type (e.g., RuntimeDefault, Unconfined). If null, no explicit profile is set.
     linux_capabilities      = optional(list(string), [])       # Default is drop ALL
     read_only               = optional(bool, true)             # Whether to use a readonly file system
     env                     = optional(map(string), {})        # Environment variables specific to the container

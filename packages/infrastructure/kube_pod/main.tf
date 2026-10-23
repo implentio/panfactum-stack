@@ -228,7 +228,9 @@ locals {
   ************************************************/
   // Note: we allow some extra permissions when running in local dev mode
   security_context = {
-    for container in var.containers : container.name => {
+    # Backported from upstream 34d827f2 for kube_buildkit. merge() leaves the key out when unset,
+    # so pods that don't set seccomp_profile_type render exactly as before.
+    for container in var.containers : container.name => merge({
       runAsGroup               = container.run_as_root ? 0 : container.uid
       runAsUser                = container.run_as_root ? 0 : container.uid
       runAsNonRoot             = !container.run_as_root
@@ -239,7 +241,9 @@ locals {
         add  = container.linux_capabilities
         drop = container.privileged ? [] : ["ALL"]
       }
-    }
+      }, container.seccomp_profile_type != null ? {
+      seccompProfile = { type = container.seccomp_profile_type }
+    } : {})
   }
 
   /************************************************

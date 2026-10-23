@@ -2,15 +2,15 @@ terraform {
   required_providers {
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "2.35.0"
+      version = "2.34.0"
     }
     aws = {
       source  = "hashicorp/aws"
-      version = "6.40.0"
+      version = "5.80.0"
     }
     kubectl = {
       source  = "alekc/kubectl"
-      version = "2.1.6"
+      version = "2.1.3"
     }
     pf = {
       source  = "panfactum/pf"
@@ -363,7 +363,7 @@ module "scale_to_zero" {
     image_repository = module.constants.panfactum_image_repository
     image_tag        = module.constants.panfactum_image_tag
     command = [
-      "pf", "buildkit", "suspend",
+      "/bin/pf-buildkit-scale-down",
       "--timeout",
       tostring(var.scale_down_delay_seconds)
     ]
@@ -442,7 +442,7 @@ module "cache_clear" {
     image_tag        = module.constants.panfactum_image_tag
 
     command = [
-      "pf", "buildkit", "clear-cache"
+      "/bin/pf-buildkit-clear-cache",
     ]
     minimum_memory = 50
   }]
