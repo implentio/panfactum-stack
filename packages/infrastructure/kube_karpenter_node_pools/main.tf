@@ -201,9 +201,13 @@ locals {
     module.constants.linkerd_taint
   ]
 
+  # consolidateAfter was 10s upstream. A pod with WaitForFirstConsumer EBS volumes is not bound while its
+  # volumes are provisioned, and on a new node that waits for the EBS CSI node plugin to register (about
+  # 30 s), so Karpenter saw the new node as empty and deleted it; the pod bound to it 1-2 s later and the
+  # 2m terminationGracePeriod then killed it despite do-not-disrupt (replication runs, 2026-10-26).
   disruption_policy = {
     consolidationPolicy = "WhenEmptyOrUnderutilized"
-    consolidateAfter    = "10s"
+    consolidateAfter    = "5m"
     budgets             = []
   }
 
