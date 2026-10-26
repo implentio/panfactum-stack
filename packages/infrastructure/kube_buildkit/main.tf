@@ -151,6 +151,13 @@ module "buildkit" {
   # and we never want to disrupt the builder pods
   vpa_enabled = false
 
+  # 34d827f2's kube_stateful_set defaulted burstable nodes on and lifetime evictions off;
+  # 40b40dbe flips both, so set them here to keep builds where they ran.
+  burstable_nodes_enabled = true
+  extra_pod_labels = {
+    "panfactum.com/prevent-lifetime-eviction" = "true"
+  }
+
   common_env = {
     XDG_RUNTIME_DIR = "/home/user/.local/tmp"
     DOCKER_CONFIG   = "/home/user/.config/docker"
@@ -166,6 +173,10 @@ module "buildkit" {
       image_registry   = "docker.io"
       image_repository = "moby/buildkit"
       image_tag        = var.buildkit_image_version
+      # 40b40dbe's kube_pod pins images on every node by default; buildkit's image is large and
+      # runs on few nodes, so keep 34d827f2's behavior.
+      image_pin_enabled     = false
+      image_prepull_enabled = false
       command = [
         "rootlesskit",
         "buildkitd",
@@ -358,10 +369,12 @@ module "scale_to_zero" {
 
   cron_schedule = "*/15 * * * *"
   containers = [{
-    name             = "scale-to-zero"
-    image_registry   = "public.ecr.aws"
-    image_repository = module.constants.panfactum_image_repository
-    image_tag        = module.constants.panfactum_image_tag
+    name                  = "scale-to-zero"
+    image_registry        = "public.ecr.aws"
+    image_repository      = module.constants.panfactum_image_repository
+    image_tag             = module.constants.panfactum_image_tag
+    image_pin_enabled     = false
+    image_prepull_enabled = false
     command = [
       "/bin/pf-buildkit-scale-down",
       "--timeout",
@@ -436,10 +449,12 @@ module "cache_clear" {
 
   cron_schedule = var.cache_clear_cron
   containers = [{
-    name             = "cache-clear"
-    image_registry   = "public.ecr.aws"
-    image_repository = module.constants.panfactum_image_repository
-    image_tag        = module.constants.panfactum_image_tag
+    name                  = "cache-clear"
+    image_registry        = "public.ecr.aws"
+    image_repository      = module.constants.panfactum_image_repository
+    image_tag             = module.constants.panfactum_image_tag
+    image_pin_enabled     = false
+    image_prepull_enabled = false
 
     command = [
       "/bin/pf-buildkit-clear-cache",
