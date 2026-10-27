@@ -23,6 +23,8 @@ Run `git log 40b40dbe..implentio` for the full history. Each PR into `implentio`
 
 - Forked modules, deployed directly by implentio/stack units: `kube_alloy`, `kube_argo`, `kube_aws_ebs_csi`, `kube_buildkit`, `kube_cilium`, `kube_ingress_nginx`, `kube_karpenter`, `kube_karpenter_node_pools`, `kube_linkerd`, `kube_logging`, `kube_monitoring`, `kube_open_cost`, `kube_pvc_autoresizer`, `kube_velero`, `kube_vpa`.
 - Implentio-only modules, not in upstream: `kube_kata_container` (Kata Containers VM runtime, `runtimeClassName: kata`).
+- Forked modules called from implentio/stack's own modules (`implentio_api`, `implentio_cicd`, `implentio_db`): `kube_pg_cluster` (`pg_image`), `kube_redis_sentinel` (creds-syncer fixes), `wf_dockerfile_build` and `wf_tf_deploy` (8fe2e40a-based, GitHub App tokens).
+- `kube_node_settings`: registry QPS/burst and unlimited memlock from upstream `30f40bd6`.
 - Shared submodules taken unchanged from upstream [`8fe2e40a`](https://github.com/Panfactum/stack/tree/8fe2e40a5f3174679470209208133a32698a2f66), because production `kube_argo` runs on them: `kube_constants` (argo-events `patch-54`), `kube_sa_auth_aws`, `kube_ingress`, `kube_pg_cluster`.
 - `kube_pod`, `kube_stateful_set`: optional `seccomp_profile_type`, backported from upstream `34d827f2` for `kube_buildkit`. When it is unset, pods render exactly as on `40b40dbe`.
 
