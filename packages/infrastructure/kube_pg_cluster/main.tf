@@ -39,7 +39,7 @@ locals {
   smart_shutdown_timeout = var.pg_smart_shutdown_timeout
 
   # CloudNativePG 1.30 rejects '/' in externalClusters names; serverName keeps the real S3 path.
-  recovery_source_name = replace(var.pg_recovery_directory, "/", "-")
+  recovery_source_name = var.pg_recovery_directory == null ? null : replace(var.pg_recovery_directory, "/", "-")
 
   poolers_to_enable = toset(concat(
     var.pgbouncer_read_only_enabled ? ["r"] : [],
