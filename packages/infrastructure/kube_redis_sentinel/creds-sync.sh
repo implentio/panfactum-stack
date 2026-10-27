@@ -22,17 +22,18 @@ while true; do
   USERS_SRC=$(echo "$ACL_RULES_SRC" | grep -oP '^\S+')
 
   # Ensure that the kubernetes users managed by VSO exist. If not, force recreate them by deleting their creds secrets.
-  if ! echo "$USERS_SRC" | grep -q "V_KUBERNETES-${REDIS_NAMESPACE^^}-${REDIS_STS_NAME^^}_SUPERUSER"; then
+  # Fork: here-strings, not `echo | grep -q`; under pipefail an early grep exit SIGPIPEs echo and reads as "missing" (Panfactum/stack#387).
+  if ! grep -q "V_KUBERNETES-${REDIS_NAMESPACE^^}-${REDIS_STS_NAME^^}_SUPERUSER" <<<"$USERS_SRC"; then
     echo "VSO superuser user does not exist. Recreating..." >&3
     kubectl -n "$REDIS_NAMESPACE" delete secret "$REDIS_STS_NAME-superuser-creds" >/dev/null
     sleep 5
     continue
-  elif ! echo "$USERS_SRC" | grep -q "V_KUBERNETES-${REDIS_NAMESPACE^^}-${REDIS_STS_NAME^^}_ADMIN"; then
+  elif ! grep -q "V_KUBERNETES-${REDIS_NAMESPACE^^}-${REDIS_STS_NAME^^}_ADMIN" <<<"$USERS_SRC"; then
     echo "VSO admin user does not exist. Recreating..." >&3
     kubectl -n "$REDIS_NAMESPACE" delete secret "$REDIS_STS_NAME-admin-creds" >/dev/null
     sleep 5
     continue
-  elif ! echo "$USERS_SRC" | grep -q "V_KUBERNETES-${REDIS_NAMESPACE^^}-${REDIS_STS_NAME^^}_READER"; then
+  elif ! grep -q "V_KUBERNETES-${REDIS_NAMESPACE^^}-${REDIS_STS_NAME^^}_READER" <<<"$USERS_SRC"; then
     echo "VSO reader user does not exist. Recreating..." >&3
     kubectl -n "$REDIS_NAMESPACE" delete secret "$REDIS_STS_NAME-reader-creds" >/dev/null
     sleep 5
@@ -70,7 +71,7 @@ while true; do
 
     # Find users that exist in the dest Redis but not in the source Redis and delete them
     for USER in $USERS_DST; do
-      if ! echo "$USERS_SRC" | grep -qw "$USER"; then
+      if ! grep -qw "$USER" <<<"$USERS_SRC"; then
         redis-cli -e -h "$DST_REDIS_HOST" -p "$PORT" ACL DELUSER "$USER" >/dev/null
       fi
     done
