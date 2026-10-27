@@ -5,6 +5,11 @@ set -eo pipefail
 #####################################################
 # Step 1: Checkout the repo
 #####################################################
+# The refresh-github-token container in this pod mints this from the GitHub App.
+GITHUB_APP_TOKEN=$(cat "$SHARED_VOLUME_PATH/github_token")
+# environments/panfactum.hcl builds terragrunt's repo_authentication from these.
+export GIT_USERNAME=x-access-token GIT_PASSWORD="$GITHUB_APP_TOKEN"
+
 cd /code
 pf-wf-git-checkout \
   -r "$REPO" \
@@ -12,6 +17,11 @@ pf-wf-git-checkout \
   -u "$GIT_USERNAME" \
   -p "$GIT_PASSWORD"
 cd repo
+
+# Authenticates terragrunt run_cmd calls like pf-get-commit-hash. HOME is on the read-only
+# root filesystem, so the global git config lives on the token volume.
+export GIT_CONFIG_GLOBAL="$SHARED_VOLUME_PATH/gitconfig"
+git config --global url.https://x-access-token:"${GITHUB_APP_TOKEN}"@github.com/.insteadOf https://github.com/
 
 #####################################################
 # Step 2: Setup AWS profile

@@ -5,6 +5,10 @@ set -eo pipefail
 #####################################################
 # Step 1: Clone the repo
 #####################################################
+# The refresh-github-token container in this pod mints this from the GitHub App.
+GITHUB_APP_TOKEN=$(cat "$SHARED_VOLUME_PATH/github_token")
+export GIT_USERNAME=x-access-token GIT_PASSWORD="$GITHUB_APP_TOKEN"
+
 cd /code
 pf-wf-git-checkout \
   -r "$REPO" \
@@ -34,8 +38,5 @@ LOCK_TABLE_REGION=$(echo "$TG_VARIABLES" | jq '.tf_state_region' -r)
 #####################################################
 # Step 4: Unlock
 #####################################################
-pf-tf-delete-locks \
-  --profile ci \
-  --region "$LOCK_TABLE_REGION" \
-  --table "$LOCK_TABLE" \
-  --who "$WHO"
+# Not pf-tf-delete-locks: it exits 5 on any lock in the table whose Info is not JSON.
+/scripts/delete-locks.sh ci "$LOCK_TABLE_REGION" "$LOCK_TABLE" "$WHO"
