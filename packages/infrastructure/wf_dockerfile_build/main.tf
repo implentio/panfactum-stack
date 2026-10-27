@@ -24,6 +24,66 @@ locals {
   args = {
 
   }
+
+  implentio_util_image = "730335560480.dkr.ecr.us-west-2.amazonaws.com/implentio-util:${var.implentio_util_image_version}"
+
+  # default_resources is sized for the build containers; the token minter only makes two HTTP calls.
+  light_resources = {
+    requests = {
+      memory = "128Mi"
+      cpu    = "50m"
+    }
+    limits = {
+      memory = "128Mi"
+      cpu    = "250m"
+    }
+  }
+
+  oom_retry_tiers = var.oom_retry == null ? [] : [
+    for attempt in range(var.oom_retry.max_retries + 1) :
+    "${ceil(var.memory_mb * pow(var.oom_retry.growth_factor, attempt))}Mi"
+  ]
+
+  # Argo exposes `retries` as a string; without the sprig.int cast, pod patching fails.
+  oom_retry_memory_expression = var.oom_retry == null ? null : format(
+    "{{=%s'%s'}}",
+    join("", [for attempt in range(length(local.oom_retry_tiers) - 1) : "sprig.int(retries) == ${attempt} ? '${local.oom_retry_tiers[attempt]}' : "]),
+    local.oom_retry_tiers[length(local.oom_retry_tiers) - 1]
+  )
+
+  # Pod requests add up across containers, so only the buildctl containers get the larger memory.
+  build_container_names = concat(
+    var.amd_builder_enabled ? ["build-amd64"] : [],
+    var.arm_builder_enabled ? ["build-arm64"] : []
+  )
+
+  # Template-level retry replaces the pod, which is the only way to change its memory.
+  oom_retry_strategy = var.oom_retry == null ? null : {
+    limit       = tostring(var.oom_retry.max_retries)
+    retryPolicy = "Always"
+    backoff = {
+      duration = "10" # seconds
+      factor   = 2
+    }
+    # containerSet nodes never get lastRetry.exitCode (Argo reads it only from a container named `main`),
+    # so match the node message, which starts with the OOM reason. Deleted spot pods must still retry.
+    expression = "lastRetry.message startsWith 'OOMKilled' || lastRetry.message matches 'pod deleted'"
+  }
+
+  oom_pod_spec_patch = var.oom_retry == null ? null : yamlencode({
+    containers = [for name in local.build_container_names : {
+      name = name
+      resources = {
+        requests = {
+          cpu    = "${var.cpu_millicores}m"
+          memory = local.oom_retry_memory_expression
+        }
+        limits = {
+          memory = local.oom_retry_memory_expression
+        }
+      }
+    }]
+  })
 }
 
 module "constants" {
@@ -134,6 +194,10 @@ resource "kubernetes_config_map" "scripts" {
     "build.sh"           = file("${path.module}/scripts/build.sh")
     "clone.sh"           = file("${path.module}/scripts/clone.sh")
     "merge-manifests.sh" = file("${path.module}/scripts/merge-manifests.sh")
+    "setup.sh"           = file("${path.module}/scripts/setup.sh")
+    "scale-buildkit.sh"  = file("${path.module}/scripts/scale-buildkit.sh")
+    # This mount shadows the implentio-util image's /scripts. Keep byte-identical to wf_tf_plan's copy.
+    "refresh-github-token.sh" = file("${path.module}/scripts/refresh-github-token.sh")
   }
 }
 
@@ -145,6 +209,7 @@ module "image_builder_workflow" {
   burstable_nodes_enabled = true
   active_deadline_seconds = var.build_timeout
   workflow_parallelism    = 10
+  retry_max_attempts      = 1
 
   entrypoint = local.entrypoint
   passthrough_parameters = [
@@ -156,7 +221,6 @@ module "image_builder_workflow" {
   ]
   common_env = {
     GIT_REF                = "{{inputs.parameters.git_ref}}"
-    GIT_USERNAME           = var.git_username
     CODE_REPO              = var.code_repo
     IMAGE_REPO             = var.image_repo
     IMAGE_REGISTRY         = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.name}.amazonaws.com"
@@ -168,11 +232,14 @@ module "image_builder_workflow" {
     BUILDKIT_BUCKET_REGION = data.aws_region.current.name
     SECRET_ARGS            = join(" ", [for id, val in var.secrets : "--secret id=${id},env=${id}"])
     BUILD_ARGS             = join(" ", [for arg, val in var.args : "--opt build-arg:${arg}=${val}"])
+    IMAGE_TAG_PREFIX       = var.image_tag_prefix
   }
   common_secrets = merge(
     var.secrets,
     {
-      GIT_PASSWORD = var.git_password
+      GITHUB_APP_ID              = var.github_app_id
+      GITHUB_APP_INSTALLATION_ID = var.github_app_installation_id
+      GITHUB_APP_PRIVATE_KEY     = var.github_app_private_key
     }
   )
   extra_aws_permissions = data.aws_iam_policy_document.image_builder.json
@@ -188,62 +255,106 @@ module "image_builder_workflow" {
   default_container_image = "${module.constants.images.devShell.registry}/${module.constants.images.devShell.repository}:${module.constants.images.devShell.tag}"
   templates = [
     {
-      name    = local.entrypoint
-      volumes = module.image_builder_workflow.volumes
-      containerSet = {
-        containers = [
-          {
-            name    = "scale-buildkit"
-            command = ["/bin/pf-buildkit-scale-up", "--wait"]
-          },
-          {
-            name    = "clone"
-            command = ["/scripts/clone.sh"]
-          },
-          {
-            name    = "build-amd64"
-            command = ["/scripts/build.sh"]
-            env = concat(
-              module.image_builder_workflow.env,
-              [
-                { name = "ARCH", value = "amd64" },
-                { name = "IMAGE_TAG_PREFIX", value = var.image_tag_prefix }
-              ]
-            )
-            dependencies = ["scale-buildkit", "clone"]
-          },
-          {
-            name    = "build-arm64"
-            command = ["/scripts/build.sh"]
-            env = concat(
-              module.image_builder_workflow.env,
-              [
-                { name = "ARCH", value = "arm64" },
-                { name = "IMAGE_TAG_PREFIX", value = var.image_tag_prefix }
-              ]
-            )
-            dependencies = ["scale-buildkit", "clone"]
-          },
-          {
-            name         = "merge-manifests"
-            command      = ["/scripts/merge-manifests.sh"]
-            dependencies = ["build-arm64", "build-amd64"]
-            env = concat(
-              module.image_builder_workflow.env,
-              [
-                { name = "ARCH", value = "arm64" },
-                { name = "IMAGE_TAG_PREFIX", value = var.image_tag_prefix }
-              ]
-            )
-          }
-        ]
+      name = local.entrypoint
+      dag = {
+        tasks = [{ name = "build", template = "build" }]
       }
-    }
+      # One build per image and commit: a second one waits, then setup.sh finds the image and skips.
+      # It sits outside the build template so a waiting duplicate does not hold the build-slot queue.
+      synchronization = {
+        mutexes = [{ name = "${var.name}-{{inputs.parameters.git_ref}}" }]
+      }
+    },
+    merge(
+      {
+        name    = "build"
+        volumes = module.image_builder_workflow.volumes
+        containerSet = {
+          retry_strategy = {
+            duration = "60s"
+            retries  = var.retry_max_attempts
+          }
+          containers = concat(
+            [
+              {
+                # The devShell image has no openssl, so a separate container mints the App token into /tmp.
+                name      = "refresh-github-token"
+                image     = local.implentio_util_image
+                command   = ["/bin/bash", "/scripts/refresh-github-token.sh"]
+                resources = local.light_resources
+              },
+              {
+                name         = "setup"
+                command      = ["/scripts/setup.sh"]
+                dependencies = ["refresh-github-token"]
+              },
+              {
+                name = "scale-buildkit"
+                command = [for arg in [
+                  "/scripts/scale-buildkit.sh",
+                  var.amd_builder_enabled ? null : "--only=arm64",
+                  var.arm_builder_enabled ? null : "--only=amd64",
+                  "--wait"
+                ] : arg if arg != null]
+                dependencies = ["setup"]
+              },
+              {
+                name         = "clone"
+                command      = ["/scripts/clone.sh"]
+                dependencies = ["setup"]
+              }
+            ],
+            var.amd_builder_enabled ? [
+              {
+                name    = "build-amd64"
+                command = ["/scripts/build.sh"]
+                env = concat(
+                  module.image_builder_workflow.env,
+                  [
+                    { name = "ARCH", value = "amd64" },
+                    { name = "USE_ARCH_SUFFIX", value = var.arm_builder_enabled ? "1" : "0" },
+                  ]
+                )
+                dependencies = ["scale-buildkit", "clone"]
+            }] : [],
+            var.arm_builder_enabled ? [
+              {
+                name    = "build-arm64"
+                command = ["/scripts/build.sh"]
+                env = concat(
+                  module.image_builder_workflow.env,
+                  [
+                    { name = "ARCH", value = "arm64" },
+                    { name = "USE_ARCH_SUFFIX", value = var.amd_builder_enabled ? "1" : "0" },
+                  ]
+                )
+                dependencies = ["scale-buildkit", "clone"]
+            }] : [],
+            var.arm_builder_enabled && var.amd_builder_enabled ? [
+              {
+                name         = "merge-manifests"
+                command      = ["/scripts/merge-manifests.sh"]
+                dependencies = ["build-arm64", "build-amd64"]
+              }
+            ] : []
+          )
+        }
+      },
+      {
+        retryStrategy = local.oom_retry_strategy
+        podSpecPatch  = local.oom_pod_spec_patch
+        # Template-level so the lock also applies through templateRef from the build-deploy workflows.
+        synchronization = var.build_semaphore == null ? null : {
+          semaphores = [{ configMapKeyRef = { name = var.build_semaphore.configmap_name, key = var.build_semaphore.key } }]
+        }
+      }
+    )
   ]
   tmp_directories = {
     code = {
       mount_path = "/code"
       size_mb    = var.code_storage_gb * 1024
+      node_local = true
     }
     creds = {
       mount_path = "/.docker"
@@ -253,6 +364,11 @@ module "image_builder_workflow" {
     aws = {
       mount_path = "/.aws"
       size_mb    = 10
+      node_local = true
+    }
+    tmp = {
+      mount_path = "/tmp"
+      size_mb    = 1
       node_local = true
     }
   }
@@ -277,5 +393,12 @@ resource "kubectl_manifest" "workflow_template" {
 
   server_side_apply = true
   force_conflicts   = true
+
+  lifecycle {
+    precondition {
+      condition     = var.arm_builder_enabled || var.amd_builder_enabled
+      error_message = "At least one of arm_builder_enabled or amd_builder_enabled must be true."
+    }
+  }
 }
 
