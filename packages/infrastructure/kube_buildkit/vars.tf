@@ -76,3 +76,20 @@ variable "spot_nodes_enabled" {
   default     = true
 }
 
+variable "descheduler_enabled" {
+  description = "Whether the descheduler may evict BuildKit pods. An eviction kills the pod's running builds and forces a cold start."
+  type        = bool
+  default     = true
+}
+
+variable "memory_autoscaling_enabled" {
+  description = "Whether the HPA scales on buildkitd memory in addition to CPU. buildkitd's page cache counts toward memory, so idle pods can trigger scale-ups."
+  type        = bool
+  default     = true
+}
+
+variable "priority_class_enabled" {
+  description = "Whether BuildKit pods use a dedicated priority class at the workload-important value with preemptionPolicy Never. Without it they run at priority 0 and other pods can preempt them."
+  type        = bool
+  default     = false
+}

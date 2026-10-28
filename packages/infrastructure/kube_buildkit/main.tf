@@ -112,6 +112,19 @@ module "aws_permissions" {
 * Buildkit StatefulSet
 ***************************************/
 
+# Equal priority cannot preempt, so workload-important pods stop evicting buildkit.
+# Never keeps a pending buildkit pod from evicting other pods in turn.
+resource "kubernetes_priority_class" "buildkit" {
+  count = var.priority_class_enabled ? 1 : 0
+  metadata {
+    name   = "buildkit"
+    labels = data.pf_kube_labels.labels.labels
+  }
+  description       = "BuildKit pods: not preemptible by workload-important or default pods, and never preempt others."
+  value             = 10000000
+  preemption_policy = "Never"
+}
+
 module "buildkit" {
   source   = "../kube_stateful_set"
   for_each = local.arch
@@ -126,6 +139,7 @@ module "buildkit" {
 
   panfactum_scheduler_enabled = var.panfactum_scheduler_enabled
   pull_through_cache_enabled  = var.pull_through_cache_enabled
+  priority_class_name         = var.priority_class_enabled ? kubernetes_priority_class.buildkit[0].metadata[0].name : null
 
   # High availability is not required
   instance_type_anti_affinity_required = false
@@ -154,9 +168,10 @@ module "buildkit" {
   # 34d827f2's kube_stateful_set defaulted burstable nodes on and lifetime evictions off;
   # 40b40dbe flips both, so set them here to keep builds where they ran.
   burstable_nodes_enabled = true
-  extra_pod_labels = {
-    "panfactum.com/prevent-lifetime-eviction" = "true"
-  }
+  extra_pod_labels = merge(
+    { "panfactum.com/prevent-lifetime-eviction" = "true" },
+    var.descheduler_enabled ? {} : { "panfactum.com/descheduler-enabled" = "false" }
+  )
 
   common_env = {
     XDG_RUNTIME_DIR = "/home/user/.local/tmp"
@@ -280,15 +295,18 @@ resource "kubernetes_horizontal_pod_autoscaler_v2" "autoscaler" {
     }
     min_replicas = var.min_replicas
     max_replicas = var.max_replicas
-    metric {
-      type = "ContainerResource"
-      container_resource {
-        name = "memory"
-        target {
-          type                = "Utilization"
-          average_utilization = 70
+    dynamic "metric" {
+      for_each = var.memory_autoscaling_enabled ? ["memory"] : []
+      content {
+        type = "ContainerResource"
+        container_resource {
+          name = "memory"
+          target {
+            type                = "Utilization"
+            average_utilization = 70
+          }
+          container = "buildkitd"
         }
-        container = "buildkitd"
       }
     }
     metric {
