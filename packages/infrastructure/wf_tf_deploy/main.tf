@@ -25,6 +25,22 @@ locals {
   hostname = md5("${var.repo}${var.tf_apply_dir}")
 
   entrypoint = "entry"
+
+  # The devShell image has no openssl to sign the GitHub App JWT, so a separate container mints the token.
+  implentio_util_image = "730335560480.dkr.ecr.us-west-2.amazonaws.com/implentio-util:${var.implentio_util_image_version}"
+  token_minter_resources = {
+    requests = {
+      memory = "128Mi"
+      cpu    = "50m"
+    }
+    limits = {
+      memory = "128Mi"
+      cpu    = "65m"
+    }
+  }
+
+  # force-unlock drops these volumes, so every container in its pod must drop the mounts too.
+  force_unlock_volume_mounts = [for mount in module.tf_deploy_workflow.container_defaults.volumeMounts : mount if !contains(["tmp", "cache"], mount.name)]
 }
 
 module "constants" {
@@ -112,6 +128,10 @@ resource "kubernetes_config_map" "tf_deploy_scripts" {
   data = {
     "deploy.sh"       = file("${path.module}/scripts/deploy.sh")
     "force-unlock.sh" = file("${path.module}/scripts/force-unlock.sh")
+    "delete-locks.sh" = file("${path.module}/scripts/delete-locks.sh")
+    # This mount shadows the implentio-util image's /scripts, so the fork ships its own copy.
+    # Keep it identical to implentio/stack infrastructure/internal/wf_tf_plan/scripts/refresh-github-token.sh.
+    "refresh-github-token.sh" = file("${path.module}/scripts/refresh-github-token.sh")
   }
 }
 
@@ -141,8 +161,10 @@ module "tf_deploy_workflow" {
   common_env = {
     REPO         = var.repo
     GIT_REF      = "{{inputs.parameters.git_ref}}"
-    GIT_USERNAME = var.git_username
     TF_APPLY_DIR = "{{inputs.parameters.tf_apply_dir}}"
+
+    # Shared between the refresh-github-token container and the work container in the same pod
+    SHARED_VOLUME_PATH = "/github-token"
 
     # Needed for Vault authentication
     VAULT_ROLE = module.tf_deploy_vault_role.role_name
@@ -164,7 +186,9 @@ module "tf_deploy_workflow" {
   common_secrets = merge(
     var.secrets,
     {
-      GIT_PASSWORD = var.git_password
+      GITHUB_APP_ID              = var.github_app_id
+      GITHUB_APP_INSTALLATION_ID = var.github_app_installation_id
+      GITHUB_APP_PRIVATE_KEY     = var.github_app_private_key
     }
   )
   extra_aws_permissions = data.aws_iam_policy_document.tf_deploy_ecr.json
@@ -209,8 +233,20 @@ module "tf_deploy_workflow" {
         hostname = local.hostname
       })
       volumes = module.tf_deploy_workflow.volumes
-      container = {
-        command = ["/scripts/deploy.sh"]
+      containerSet = {
+        containers = [
+          {
+            name      = "refresh-github-token"
+            image     = local.implentio_util_image
+            command   = ["/bin/bash", "/scripts/refresh-github-token.sh"]
+            resources = local.token_minter_resources
+          },
+          {
+            name         = "deploy"
+            command      = ["/scripts/deploy.sh"]
+            dependencies = ["refresh-github-token"]
+          }
+        ]
       }
 
       # We do not retry this template b/c we need to proceed to force-unlock if this fails
@@ -220,19 +256,33 @@ module "tf_deploy_workflow" {
     {
       name    = "force-unlock"
       volumes = [for volume in module.tf_deploy_workflow.volumes : volume if !contains(["tmp", "cache"], volume.name)]
-      container = {
-        volumeMounts = [for mount in module.tf_deploy_workflow.container_defaults.volumeMounts : mount if !contains(["tmp", "cache"], mount.name)]
-        command      = ["/scripts/force-unlock.sh"]
-        resources = {
-          requests = {
-            memory = "250Mi"
-            cpu    = "100m"
+      # Mints its own token because this pod has no tmp volume and the deploy token may have expired.
+      containerSet = {
+        containers = [
+          {
+            name         = "refresh-github-token"
+            image        = local.implentio_util_image
+            volumeMounts = local.force_unlock_volume_mounts
+            command      = ["/bin/bash", "/scripts/refresh-github-token.sh"]
+            resources    = local.token_minter_resources
+          },
+          {
+            name         = "force-unlock"
+            volumeMounts = local.force_unlock_volume_mounts
+            command      = ["/scripts/force-unlock.sh"]
+            dependencies = ["refresh-github-token"]
+            resources = {
+              requests = {
+                memory = "250Mi"
+                cpu    = "100m"
+              }
+              limits = {
+                memory = "250Mi"
+                cpu    = "100m"
+              }
+            }
           }
-          limits = {
-            memory = "250Mi"
-            cpu    = "100m"
-          }
-        }
+        ]
       }
       retryStrategy = { limit = "0" }
     }
@@ -255,6 +305,12 @@ module "tf_deploy_workflow" {
     tmp = {
       mount_path = "/tmp"
       size_mb    = var.tmp_storage_gb * 1024
+    }
+    # Separate from tmp because force-unlock drops tmp. node_local makes it an emptyDir instead of a PVC.
+    github-token = {
+      mount_path = "/github-token"
+      size_mb    = 1
+      node_local = true
     }
     # TODO: I do not think that terragrunt should be utilizing this directory
     # but due to a bug it is so we must provide it. Revisit in a future release.

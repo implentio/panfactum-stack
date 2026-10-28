@@ -98,21 +98,81 @@ variable "args" {
   default     = {}
 }
 
-variable "git_username" {
-  description = "The username to use when checking out the code to deploy"
+variable "github_app_id" {
+  description = "GitHub App id, used to mint the installation token that checks out the code"
   type        = string
-  default     = ""
+  sensitive   = true
 }
 
-variable "git_password" {
-  description = "The password to use when checking out the code to deploy"
+variable "github_app_installation_id" {
+  description = "GitHub App installation id, used to mint the installation token that checks out the code"
   type        = string
-  default     = ""
   sensitive   = true
+}
+
+variable "github_app_private_key" {
+  description = "GitHub App private key, used to mint the installation token that checks out the code"
+  type        = string
+  sensitive   = true
+}
+
+variable "implentio_util_image_version" {
+  description = "Image tag of implentio-util, which runs the token minter (the devShell image has no openssl)"
+  type        = string
 }
 
 variable "extra_ecr_repo_arns_for_pull_access" {
   description = "ARNs of private ECR repositories from which the Dockerfile pulls base images FROM"
   type        = list(string)
   default     = []
+}
+
+variable "arm_builder_enabled" {
+  description = "Whether to build arm64 images."
+  type        = bool
+  default     = true
+}
+
+variable "amd_builder_enabled" {
+  description = "Whether to build amd64 images."
+  type        = bool
+  default     = true
+}
+
+variable "retry_max_attempts" {
+  description = "The maximum number of allowable retries"
+  type        = number
+  default     = 2
+}
+
+# Non-OOM failures stop immediately; spot evictions consume tiers and the build_timeout covers all attempts.
+variable "oom_retry" {
+  description = "Retry the whole build pod with more memory after an OOM kill. On by default. Null disables it and keeps the upstream single retry."
+  type = object({
+    max_retries   = optional(number, 3)
+    growth_factor = optional(number, 1.3)
+  })
+  default = {}
+
+  validation {
+    condition = try(
+      var.oom_retry.max_retries >= 0 && floor(var.oom_retry.max_retries) == var.oom_retry.max_retries,
+      true
+    )
+    error_message = "oom_retry.max_retries must be a whole number, 0 or greater."
+  }
+
+  validation {
+    condition     = try(var.oom_retry.growth_factor > 1, true)
+    error_message = "oom_retry.growth_factor must be greater than 1. A value of 1 repeats one tier, and a value below 1 shrinks memory on every retry."
+  }
+}
+
+variable "build_semaphore" {
+  description = "A semaphore ConfigMap key shared across build templates, held by the build pod. Null matches upstream (no shared cap)."
+  type = object({
+    configmap_name = string
+    key            = string
+  })
+  default = null
 }

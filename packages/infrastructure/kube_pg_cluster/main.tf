@@ -38,12 +38,22 @@ locals {
 
   smart_shutdown_timeout = var.pg_smart_shutdown_timeout
 
+  # CloudNativePG 1.30 rejects '/' in externalClusters names; serverName keeps the real S3 path.
+  recovery_source_name = var.pg_recovery_directory == null ? null : replace(var.pg_recovery_directory, "/", "-")
+
   poolers_to_enable = toset(concat(
     var.pgbouncer_read_only_enabled ? ["r"] : [],
     var.pgbouncer_read_write_enabled ? ["rw"] : []
   ))
 
   all_schemas = tolist(toset(concat(var.extra_schemas, ["public"])))
+
+  # Fork change: var.pg_image overrides the stock CNPG operand image
+  pg_image = var.pg_image != null ? var.pg_image : {
+    registry   = module.pull_through.github_registry
+    repository = "cloudnative-pg/postgresql"
+    tag        = var.pg_version
+  }
 
   disruption_window_labels = {
     "panfactum.com/voluntary-disruption-window-id" = var.voluntary_disruption_window_enabled ? module.disruption_window_controller[0].disruption_window_id : "false"
@@ -280,7 +290,7 @@ resource "kubernetes_manifest" "postgres_cluster" {
       }
     }
     spec = { for k, v in {
-      imageName             = "${module.pull_through.github_registry}/cloudnative-pg/postgresql:${var.pg_version}"
+      imageName             = "${local.pg_image.registry}/${local.pg_image.repository}:${local.pg_image.tag}"
       instances             = var.pg_instances
       minSyncReplicas       = var.pg_sync_replication_enabled ? var.pg_instances - 1 : 0
       primaryUpdateStrategy = "unsupervised"
@@ -383,7 +393,7 @@ resource "kubernetes_manifest" "postgres_cluster" {
 
       bootstrap = { for k, v in {
         recovery = var.pg_recovery_mode_enabled ? { for k, v in {
-          source = var.pg_recovery_directory
+          source = local.recovery_source_name
           recoveryTarget = var.pg_recovery_target_time != null ? {
             targetTime = var.pg_recovery_target_time
           } : null
@@ -436,7 +446,7 @@ resource "kubernetes_manifest" "postgres_cluster" {
       } : k => v if v != null }
 
       externalClusters = var.pg_recovery_mode_enabled ? [{
-        name = var.pg_recovery_directory
+        name = local.recovery_source_name
         barmanObjectStore = {
           destinationPath = "s3://${var.pg_recovery_bucket != null ? var.pg_recovery_bucket : module.s3_bucket.bucket_name}/"
           serverName      = var.pg_recovery_directory
@@ -1513,9 +1523,9 @@ module "image_cache" {
 
   images = [
     {
-      registry          = module.pull_through.github_registry
-      repository        = "cloudnative-pg/postgresql"
-      tag               = var.pg_version
+      registry          = local.pg_image.registry
+      repository        = local.pg_image.repository
+      tag               = local.pg_image.tag
       arm_nodes_enabled = var.arm_nodes_enabled
     }
   ]

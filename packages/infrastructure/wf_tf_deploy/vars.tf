@@ -54,17 +54,27 @@ variable "cpu_millicores" {
   default     = 500
 }
 
-variable "git_username" {
-  description = "The git username to use when checking out the code to deploy"
+variable "github_app_id" {
+  description = "GitHub App id, used to mint the installation token that checks out the code to deploy"
   type        = string
-  default     = ""
+  sensitive   = true
 }
 
-variable "git_password" {
-  description = "The git password to use when checking out the code to deploy"
+variable "github_app_installation_id" {
+  description = "GitHub App installation id, used to mint the installation token that checks out the code to deploy"
   type        = string
-  default     = ""
   sensitive   = true
+}
+
+variable "github_app_private_key" {
+  description = "GitHub App private key, used to mint the installation token that checks out the code to deploy"
+  type        = string
+  sensitive   = true
+}
+
+variable "implentio_util_image_version" {
+  description = "Image tag of implentio-util, which runs the token minter container"
+  type        = string
 }
 
 variable "tmp_storage_gb" {

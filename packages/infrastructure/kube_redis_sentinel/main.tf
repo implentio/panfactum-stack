@@ -601,7 +601,8 @@ module "secrets_sync" {
       image_repository = module.constants.panfactum_image_repository
       image_tag        = module.constants.panfactum_image_tag
       command          = ["/scripts/creds-sync.sh"]
-      minimum_memory   = 20
+      # Fork: upstream's 20Mi floor (26Mi limit) got sync OOMKilled at start in prod; ACL LIST + kubectl peak above it.
+      minimum_memory = 100
     }
   ]
 

@@ -14,6 +14,16 @@ variable "pg_version" {
   default     = "16.6-13"
 }
 
+variable "pg_image" {
+  description = "Custom PostgreSQL operand image for the CNPG Cluster. Must be built on a ghcr.io/cloudnative-pg/postgresql image. If null, uses ghcr.io/cloudnative-pg/postgresql:<pg_version>."
+  type = object({
+    registry   = string
+    repository = string
+    tag        = string
+  })
+  default = null
+}
+
 variable "pg_instances" {
   description = "The number of instances to deploy in the postgres cluster"
   type        = number
