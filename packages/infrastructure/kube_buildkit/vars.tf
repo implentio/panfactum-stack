@@ -93,3 +93,14 @@ variable "priority_class_enabled" {
   type        = bool
   default     = false
 }
+
+variable "scale_down_stabilization_seconds" {
+  description = "How long the HPA waits after load drops before removing BuildKit replicas. Longer windows mean fewer replicas started with a stale cache, at the cost of more idle replicas."
+  type        = number
+  default     = 300
+
+  validation {
+    condition     = var.scale_down_stabilization_seconds >= 0 && var.scale_down_stabilization_seconds <= 3600
+    error_message = "scale_down_stabilization_seconds must be between 0 and 3600 (the Kubernetes maximum)."
+  }
+}

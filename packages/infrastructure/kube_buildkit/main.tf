@@ -323,7 +323,7 @@ resource "kubernetes_horizontal_pod_autoscaler_v2" "autoscaler" {
     behavior {
       scale_down {
         select_policy                = "Max"
-        stabilization_window_seconds = 300
+        stabilization_window_seconds = var.scale_down_stabilization_seconds
 
         policy {
           period_seconds = 60
