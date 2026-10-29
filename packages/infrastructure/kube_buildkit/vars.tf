@@ -76,3 +76,42 @@ variable "spot_nodes_enabled" {
   default     = true
 }
 
+variable "descheduler_enabled" {
+  description = "Whether the descheduler may evict BuildKit pods. An eviction kills the pod's running builds and forces a cold start."
+  type        = bool
+  default     = true
+}
+
+variable "memory_autoscaling_enabled" {
+  description = "Whether the HPA scales on buildkitd memory in addition to CPU. buildkitd's page cache counts toward memory, so idle pods can trigger scale-ups."
+  type        = bool
+  default     = true
+}
+
+variable "priority_class_enabled" {
+  description = "Whether BuildKit pods use a dedicated priority class at the workload-important value with preemptionPolicy Never. Without it they run at priority 0 and other pods can preempt them."
+  type        = bool
+  default     = false
+}
+
+variable "scale_down_stabilization_seconds" {
+  description = "How long the HPA waits after load drops before removing BuildKit replicas. Longer windows mean fewer replicas started with a stale cache, at the cost of more idle replicas."
+  type        = number
+  default     = 300
+
+  validation {
+    condition     = var.scale_down_stabilization_seconds >= 0 && var.scale_down_stabilization_seconds <= 3600
+    error_message = "scale_down_stabilization_seconds must be between 0 and 3600 (the Kubernetes maximum)."
+  }
+}
+
+
+variable "prewarm" {
+  description = "CronJob that scales BuildKit up before builds usually arrive. Each run also resets the scale-to-zero idle timer."
+  type = object({
+    enabled       = optional(bool, false)
+    cron_schedule = optional(string, "0 9,11 * * 1-5")
+    time_zone     = optional(string, "America/Chicago")
+  })
+  default = {}
+}

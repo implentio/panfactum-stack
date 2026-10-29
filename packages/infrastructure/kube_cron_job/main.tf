@@ -101,7 +101,7 @@ resource "kubectl_manifest" "cron_job" {
       )
       annotations = var.extra_annotations
     }
-    spec = {
+    spec = merge({
       concurrencyPolicy          = var.concurrency_policy
       failedJobsHistoryLimit     = var.failed_jobs_history_limit
       successfulJobsHistoryLimit = var.successful_jobs_history_limit
@@ -123,7 +123,7 @@ resource "kubectl_manifest" "cron_job" {
           podReplacementPolicy    = var.pod_replacement_policy
         }
       }
-    }
+    }, var.time_zone == null ? {} : { timeZone = var.time_zone })
   })
   server_side_apply = true
   force_conflicts   = true
