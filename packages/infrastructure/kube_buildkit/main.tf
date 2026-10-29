@@ -157,9 +157,9 @@ module "buildkit" {
   # Gives 30 minutes for builds to finish before shutdown
   termination_grace_period_seconds = 30 * 60
 
-  # Limit pod evictions
-  unhealthy_pod_eviction_policy = "IfHealthyBudget"
-  max_unavailable               = 0
+  # Block voluntary evictions. kube_stateful_set ignores max_unavailable and unhealthy_pod_eviction_policy,
+  # so those left the PDB at maxUnavailable 1; this is the switch it reads.
+  voluntary_disruptions_enabled = false
 
   # We don't use the VPA for the builder b/c the workloads are extremely uneven
   # and we never want to disrupt the builder pods
