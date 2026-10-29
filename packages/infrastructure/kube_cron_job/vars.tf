@@ -205,6 +205,12 @@ variable "cron_schedule" {
   type        = string
 }
 
+variable "time_zone" {
+  description = "IANA time zone for cron_schedule, such as America/Chicago. If null, the schedule uses the controller's time zone (UTC)."
+  type        = string
+  default     = null
+}
+
 variable "failed_jobs_history_limit" {
   description = "The number of failed jobs to retain"
   type        = number

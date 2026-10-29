@@ -405,6 +405,62 @@ module "scale_to_zero" {
 }
 
 /***************************************
+* Buildkit Pre-warm
+*
+* Scales BuildKit up before builds usually arrive,
+* so the first build does not wait for a cold start
+***************************************/
+
+resource "kubernetes_role_binding" "prewarm" {
+  count = var.prewarm.enabled ? 1 : 0
+  metadata {
+    name      = "prewarm"
+    namespace = local.namespace
+    labels    = module.prewarm[0].labels
+  }
+  subject {
+    kind      = "ServiceAccount"
+    name      = module.prewarm[0].service_account_name
+    namespace = local.namespace
+  }
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Role"
+    name      = kubernetes_role.buildkit_user.metadata[0].name
+  }
+}
+
+module "prewarm" {
+  count  = var.prewarm.enabled ? 1 : 0
+  source = "../kube_cron_job"
+
+  name                        = "prewarm"
+  namespace                   = local.namespace
+  panfactum_scheduler_enabled = var.panfactum_scheduler_enabled
+  spot_nodes_enabled          = var.spot_nodes_enabled
+  arm_nodes_enabled           = true
+  burstable_nodes_enabled     = true
+  controller_nodes_enabled    = true
+  vpa_enabled                 = var.vpa_enabled
+
+  cron_schedule = var.prewarm.cron_schedule
+  time_zone     = var.prewarm.time_zone
+  containers = [{
+    name                  = "prewarm"
+    image_registry        = "public.ecr.aws"
+    image_repository      = module.constants.panfactum_image_repository
+    image_tag             = module.constants.panfactum_image_tag
+    image_pin_enabled     = false
+    image_prepull_enabled = false
+    # Also records a build, which resets the scale-to-zero idle timer.
+    command        = ["/bin/pf-buildkit-scale-up"]
+    minimum_memory = 50
+  }]
+  starting_deadline_seconds = 60 * 5
+  active_deadline_seconds   = 60 * 5
+}
+
+/***************************************
 * Buildkit Cache Clear
 *
 * This CronJob will periodically reset the build cache

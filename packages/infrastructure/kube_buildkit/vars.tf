@@ -104,3 +104,14 @@ variable "scale_down_stabilization_seconds" {
     error_message = "scale_down_stabilization_seconds must be between 0 and 3600 (the Kubernetes maximum)."
   }
 }
+
+
+variable "prewarm" {
+  description = "CronJob that scales BuildKit up before builds usually arrive. Each run also resets the scale-to-zero idle timer."
+  type = object({
+    enabled       = optional(bool, false)
+    cron_schedule = optional(string, "0 9,11 * * 1-5")
+    time_zone     = optional(string, "America/Chicago")
+  })
+  default = {}
+}
